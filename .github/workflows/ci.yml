@@ -10,12 +10,5 @@ jobs:
         with:
           toolchain: 1.65.0
       - uses: Swatinem/rust-cache@v2
-      - name: cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all --check
-      - name: cargo build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
+      - run: cargo fmt --all --check
+      - run: cargo build
