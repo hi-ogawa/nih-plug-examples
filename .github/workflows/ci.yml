@@ -1,6 +1,6 @@
 # based on https://github.com/emilk/egui/blob/6ae4bc486b2608212f5fc8453f5aa7e5106853f8/.github/workflows/rust.yml
 name: ci
-on: []
+on: [push]
 jobs:
   build:
     runs-on: ubuntu-22.04
