@@ -7,7 +7,7 @@ use std::{
 
 pub struct MyPlugin {
     params: Arc<MyParams>,
-    note_states: Arc<Vec<NoteState>>,
+    note_states: Vec<Arc<NoteState>>,
 }
 
 #[derive(Params)]
@@ -26,7 +26,7 @@ impl Default for MyPlugin {
     fn default() -> Self {
         Self {
             params: Arc::new(MyParams::default()),
-            note_states: Arc::new((0..128).map(|_| NoteState::default()).collect()),
+            note_states: (0..128).map(|_| Arc::new(NoteState::default())).collect(),
         }
     }
 }
@@ -69,10 +69,7 @@ impl Plugin for MyPlugin {
         let velocity = self.params.velocity.value();
 
         // iterate all notes
-        for note in 0..self.note_states.len() {
-            let note_state = unsafe {
-                self.note_states.get_unchecked(note) // Vec is pre-allocated so it's safe (it is equivalent to having flat fields e.g. `note_state_0` ... `note_state_127`)
-            };
+        for (note, note_state) in self.note_states.iter().enumerate() {
             match note_state.dequeue() {
                 Some(true) => {
                     context.send_event(NoteEvent::NoteOn {
@@ -100,14 +97,14 @@ impl Plugin for MyPlugin {
 
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
-        let note_states = self.note_states.clone();
+        let note_states_v2 = self.note_states.clone();
         create_egui_editor(
             params.editor_state.clone(),
             (),
             |_, _| {},
             move |egui_ctx, setter, _state| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    // TODO: better layout
+                    // TODO: tweak layout
 
                     ui.label("Channel");
                     ui.add(ParamSlider::for_param(&params.channel, setter));
@@ -116,12 +113,8 @@ impl Plugin for MyPlugin {
                     ui.add(ParamSlider::for_param(&params.velocity, setter));
 
                     let active_notes = piano_ui(ui);
-                    for note in 0..note_states.len() {
-                        let note_state = unsafe {
-                            note_states.get_unchecked(note) // Vec is pre-allocated so it's safe (it is equivalent to having flat fields e.g. `note_state_0` ... `note_state_127`)
-                        };
+                    for (note, note_state) in note_states_v2.iter().enumerate() {
                         note_state.enqueue(active_notes.contains(&(note as u8)));
-                        // note_state.enqueue(active_note == Some(note as u8));
                     }
                 });
             },
@@ -174,10 +167,10 @@ pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
 
     let (c4_to_xx, c5_to_xx) = {
         use egui::Key::*;
+        // "zsxdcvgbhnjm".split("").map(c => c.toUpperCase()).join(", ")
+        // "q2w3er5t6y7ui9o0p".split("").map(c => Number.isInteger(Number(c)) ? `Num${c}` : c.toUpperCase()).join(", ")
         (
-            // "zsxdcvgbhnjm".split("").map(c => c.toUpperCase()).join(", ")
             [Z, S, X, D, C, V, G, B, H, N, J, M],
-            // "q2w3er5t6y7ui9o0p".split("").map(c => Number.isInteger(Number(c)) ? `Num${c}` : c.toUpperCase()).join(", ")
             [
                 Q, Num2, W, Num3, E, R, Num5, T, Num6, Y, Num7, U, I, Num9, O, Num0, P,
             ],
