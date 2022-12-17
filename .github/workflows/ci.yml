@@ -1,0 +1,21 @@
+# based on https://github.com/emilk/egui/blob/6ae4bc486b2608212f5fc8453f5aa7e5106853f8/.github/workflows/rust.yml
+name: ci
+on: []
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.65.0
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all --check
+      - name: cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
