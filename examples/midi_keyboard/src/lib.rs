@@ -97,7 +97,7 @@ impl Plugin for MyPlugin {
 
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
-        let note_states_v2 = self.note_states.clone();
+        let note_states = self.note_states.clone();
         create_egui_editor(
             params.editor_state.clone(),
             (),
@@ -120,7 +120,7 @@ impl Plugin for MyPlugin {
                     ui.separator();
 
                     let active_notes = piano_ui(ui);
-                    for (note, note_state) in note_states_v2.iter().enumerate() {
+                    for (note, note_state) in note_states.iter().enumerate() {
                         note_state.enqueue(active_notes.contains(&(note as u8)));
                     }
                 });
@@ -173,24 +173,20 @@ pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
         active_notes.insert(note);
     }
 
-    let (c4_to_xx, c5_to_xx) = {
+    let note_to_key = {
         use egui::Key::*;
         // "zsxdcvgbhnjm".split("").map(c => c.toUpperCase()).join(", ")
         // "q2w3er5t6y7ui9o0p".split("").map(c => Number.isInteger(Number(c)) ? `Num${c}` : c.toUpperCase()).join(", ")
-        (
-            [Z, S, X, D, C, V, G, B, H, N, J, M],
-            [
-                Q, Num2, W, Num3, E, R, Num5, T, Num6, Y, Num7, U, I, Num9, O, Num0, P,
-            ],
-        )
+        let c4_to_up = [Z, S, X, D, C, V, G, B, H, N, J, M];
+        let c5_to_up = [
+            Q, Num2, W, Num3, E, R, Num5, T, Num6, Y, Num7, U, I, Num9, O, Num0, P,
+        ];
+        let zip1 = (C4..).zip(c4_to_up);
+        let zip2 = ((C4 + OCTAVE)..).zip(c5_to_up);
+        zip1.chain(zip2)
     };
 
-    let key_to_note = c4_to_xx
-        .iter()
-        .zip(C4..)
-        .chain(c5_to_xx.iter().zip((C4 + OCTAVE)..));
-
-    for (&key, note) in key_to_note {
+    for (note, key) in note_to_key {
         if ui.ctx().input().key_down(key) {
             active_notes.insert(note);
         }
