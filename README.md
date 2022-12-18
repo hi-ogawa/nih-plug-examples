@@ -3,9 +3,11 @@
 simple examples to get familiar with nih-plug and egui
 
 ```sh
-# run as standalone app based on platform (e.g. jack app)
-cargo run -p midi_click
+# run as a standalone app (e.g. jack app)
+cargo run -p midi_keyboard
 ```
+
+![image](https://user-images.githubusercontent.com/4232207/208288590-4c653dde-1bcc-4d25-97a1-ca870dda6a1c.png)
 
 ## references
 
