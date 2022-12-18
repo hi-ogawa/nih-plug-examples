@@ -1,1 +1,1 @@
-simple midi output event example
+simple audio output example
