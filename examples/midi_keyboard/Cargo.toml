@@ -1,0 +1,11 @@
+[package]
+name = "midi_keyboard"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug", features = ["assert_process_allocs", "standalone"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug" }
