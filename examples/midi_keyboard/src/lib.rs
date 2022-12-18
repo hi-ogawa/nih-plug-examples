@@ -34,7 +34,7 @@ impl Default for MyPlugin {
 impl Default for MyParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(400, 200),
+            editor_state: EguiState::from_size(400, 200), // TODO: adapt to window resize?
             channel: IntParam::new("channel", 0, IntRange::Linear { min: 0, max: 15 }),
             velocity: FloatParam::new("velocity", 0.8, FloatRange::Linear { min: 0.0, max: 1.0 }),
         }
@@ -104,13 +104,20 @@ impl Plugin for MyPlugin {
             |_, _| {},
             move |egui_ctx, setter, _state| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    // TODO: tweak layout
+                    egui::Grid::new("params")
+                        .num_columns(2)
+                        .spacing([40.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label("Channel");
+                            ui.add(ParamSlider::for_param(&params.channel, setter));
+                            ui.end_row();
 
-                    ui.label("Channel");
-                    ui.add(ParamSlider::for_param(&params.channel, setter));
+                            ui.label("Velocity");
+                            ui.add(ParamSlider::for_param(&params.velocity, setter));
+                            ui.end_row();
+                        });
 
-                    ui.label("Velocity");
-                    ui.add(ParamSlider::for_param(&params.velocity, setter));
+                    ui.separator();
 
                     let active_notes = piano_ui(ui);
                     for (note, note_state) in note_states_v2.iter().enumerate() {
@@ -133,6 +140,7 @@ struct NoteRect {
 }
 
 pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
+    // TODO: render more keys and allow horizontal scroll?
     const C4: u8 = 60;
     const OCTAVE: u8 = 12;
     let note_rects = generate_note_rects(C4, C4 + 2 * OCTAVE);
@@ -203,6 +211,7 @@ pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
             color = egui::Color32::LIGHT_BLUE;
         }
         painter.rect_filled(rect, egui::Rounding::from(1.0), color);
+        // TODO: can we put "note label" (like C4) on top of key?
     }
 
     active_notes
