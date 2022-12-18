@@ -3,4 +3,5 @@ members = [
   "examples/midi_click",
   "examples/ui_to_midi",
   "examples/midi_keyboard",
+  "examples/metronome",
 ]

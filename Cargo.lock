@@ -892,6 +892,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "metronome"
+version = "0.0.0"
+dependencies = [
+ "nih_plug",
+ "nih_plug_egui",
+]
+
+[[package]]
 name = "midi-consts"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
