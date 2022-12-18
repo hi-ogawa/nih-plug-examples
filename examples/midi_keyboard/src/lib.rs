@@ -2,7 +2,10 @@ use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets::ParamSlider, EguiState};
 use std::{
     collections::HashSet,
-    sync::{atomic::AtomicIsize, Arc},
+    sync::{
+        atomic::{AtomicBool, AtomicIsize, Ordering},
+        Arc,
+    },
 };
 
 pub struct MyPlugin {
@@ -34,7 +37,7 @@ impl Default for MyPlugin {
 impl Default for MyParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(400, 200), // TODO: adapt to window resize?
+            editor_state: EguiState::from_size(500, 160), // TODO: adapt to window resize? (https://github.com/RustAudio/baseview/pull/136)
             channel: IntParam::new("channel", 0, IntRange::Linear { min: 0, max: 15 }),
             velocity: FloatParam::new("velocity", 0.8, FloatRange::Linear { min: 0.0, max: 1.0 }),
         }
@@ -98,6 +101,7 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let note_states = self.note_states.clone();
+        let is_initial_render = AtomicBool::new(true); // editor callback should be on the same thread, but needs atomic to pass borrow check
         create_egui_editor(
             params.editor_state.clone(),
             (),
@@ -119,10 +123,17 @@ impl Plugin for MyPlugin {
 
                     ui.separator();
 
-                    let active_notes = piano_ui(ui);
-                    for (note, note_state) in note_states.iter().enumerate() {
-                        note_state.enqueue(active_notes.contains(&(note as u8)));
-                    }
+                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                        let (response, active_notes) = piano_ui(ui);
+                        for (note, note_state) in note_states.iter().enumerate() {
+                            note_state.enqueue(active_notes.contains(&(note as u8)));
+                        }
+                        // scroll to center on initial render
+                        if is_initial_render.load(Ordering::Relaxed) {
+                            is_initial_render.store(false, Ordering::Relaxed);
+                            ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
+                        }
+                    });
                 });
             },
         )
@@ -139,11 +150,10 @@ struct NoteRect {
     rect: egui::Rect,
 }
 
-pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
-    // TODO: render more keys and allow horizontal scroll?
+pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, HashSet<u8>) {
     const C4: u8 = 60;
     const OCTAVE: u8 = 12;
-    let note_rects = generate_note_rects(C4, C4 + 2 * OCTAVE);
+    let note_rects = generate_note_rects(C4 - 3 * OCTAVE, C4 + 3 * OCTAVE);
 
     // allocate geometry
     let paint_rect = note_rects
@@ -177,12 +187,12 @@ pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
         use egui::Key::*;
         // "zsxdcvgbhnjm".split("").map(c => c.toUpperCase()).join(", ")
         // "q2w3er5t6y7ui9o0p".split("").map(c => Number.isInteger(Number(c)) ? `Num${c}` : c.toUpperCase()).join(", ")
-        let c4_to_up = [Z, S, X, D, C, V, G, B, H, N, J, M];
-        let c5_to_up = [
+        let keys1 = [Z, S, X, D, C, V, G, B, H, N, J, M];
+        let keys2 = [
             Q, Num2, W, Num3, E, R, Num5, T, Num6, Y, Num7, U, I, Num9, O, Num0, P,
         ];
-        let zip1 = (C4..).zip(c4_to_up);
-        let zip2 = ((C4 + OCTAVE)..).zip(c5_to_up);
+        let zip1 = ((C4 - OCTAVE)..).zip(keys1);
+        let zip2 = (C4..).zip(keys2);
         zip1.chain(zip2)
     };
 
@@ -207,10 +217,20 @@ pub fn piano_ui(ui: &mut egui::Ui) -> HashSet<u8> {
             color = egui::Color32::LIGHT_BLUE;
         }
         painter.rect_filled(rect, egui::Rounding::from(1.0), color);
-        // TODO: can we put "note label" (like C4) on top of key?
+
+        // put "note label" on top of key (e.g. C4)
+        if el.note % 12 == 0 {
+            painter.text(
+                rect.left_bottom() + egui::vec2(2.0, -2.0),
+                egui::Align2::LEFT_BOTTOM,
+                format!("C{}", (el.note / 12) - 1),
+                egui::FontId::monospace(14.0),
+                egui::Color32::BLACK,
+            );
+        }
     }
 
-    active_notes
+    (response, active_notes)
 }
 
 fn is_black_key(note: usize) -> bool {
@@ -270,11 +290,11 @@ struct NoteState(AtomicIsize);
 
 impl NoteState {
     fn set(&self, value: isize) {
-        self.0.store(value, std::sync::atomic::Ordering::Relaxed);
+        self.0.store(value, Ordering::Relaxed);
     }
 
     fn get(&self) -> isize {
-        self.0.load(std::sync::atomic::Ordering::Relaxed)
+        self.0.load(Ordering::Relaxed)
     }
 
     fn enqueue(&self, active: bool) {
