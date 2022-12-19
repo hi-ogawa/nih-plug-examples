@@ -290,11 +290,11 @@ struct NoteState(AtomicIsize);
 
 impl NoteState {
     fn set(&self, value: isize) {
-        self.0.store(value, Ordering::Relaxed);
+        self.0.store(value, Ordering::Release);
     }
 
     fn get(&self) -> isize {
-        self.0.load(Ordering::Relaxed)
+        self.0.load(Ordering::Acquire)
     }
 
     fn enqueue(&self, active: bool) {
