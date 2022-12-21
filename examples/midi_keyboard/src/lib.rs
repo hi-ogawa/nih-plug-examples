@@ -1,6 +1,7 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets::ParamSlider, EguiState};
 use std::{
+    cell::Cell,
     collections::HashSet,
     sync::{
         atomic::{AtomicIsize, Ordering},
@@ -11,6 +12,9 @@ use std::{
 pub struct MyPlugin {
     params: Arc<MyParams>,
     note_states: Vec<Arc<NoteState>>,
+
+    note_queue_producer: Cell<Option<llq::Producer<u8>>>, // moved to editor state
+    note_queue_consumer: llq::Consumer<u8>,
 }
 
 #[derive(Params)]
@@ -27,9 +31,12 @@ pub struct MyParams {
 
 impl Default for MyPlugin {
     fn default() -> Self {
+        let (tx, rx) = llq::Queue::new().split();
         Self {
             params: Arc::new(MyParams::default()),
             note_states: (0..128).map(|_| Arc::new(NoteState::default())).collect(),
+            note_queue_producer: Cell::new(Some(tx)),
+            note_queue_consumer: rx,
         }
     }
 }
@@ -71,6 +78,10 @@ impl Plugin for MyPlugin {
         let channel = self.params.channel.value() as u8;
         let velocity = self.params.velocity.value();
 
+        while let Some(_) = self.note_queue_consumer.pop() {
+            nih_dbg!("node");
+        }
+
         // iterate all notes
         for (note, note_state) in self.note_states.iter().enumerate() {
             match note_state.dequeue() {
@@ -101,16 +112,20 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let note_states = self.note_states.clone();
-        struct MiscState {
+        struct UserState {
             is_initial_render: bool,
+            note_queue_producer: llq::Producer<u8>,
+            note_nodes: Vec<llq::Node<u8>>,
         }
         create_egui_editor(
             params.editor_state.clone(),
-            MiscState {
+            UserState {
                 is_initial_render: true,
+                note_queue_producer: self.note_queue_producer.replace(None).unwrap(),
+                note_nodes: (0..128).map(|i| llq::Node::new(i)).collect(),
             },
             |_, _| {},
-            move |egui_ctx, setter, misc_state| {
+            move |egui_ctx, setter, user_state| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
                         .num_columns(2)
@@ -133,9 +148,12 @@ impl Plugin for MyPlugin {
                             note_state.enqueue(active_notes.contains(&(note as u8)));
                         }
                         // scroll to center on initial render
-                        if misc_state.is_initial_render {
-                            misc_state.is_initial_render = false;
+                        if user_state.is_initial_render {
+                            user_state.is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
+                            // user_state.note_queue_producer.push(user_state.note_nodes[0]);
+                            user_state.note_queue_producer.push(llq::Node::new(0));
+                            // TODO: when does `Node` drop?
                         }
                     });
                 });

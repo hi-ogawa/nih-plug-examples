@@ -7,5 +7,6 @@ edition = "2021"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug", features = ["assert_process_allocs", "standalone"] }
-nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug" }
+nih_plug = { git = "https://github.com/hi-ogawa/nih-plug", branch = "feat-editor-user-state-with-only-send", features = ["assert_process_allocs", "standalone"] }
+nih_plug_egui = { git = "https://github.com/hi-ogawa/nih-plug", branch = "feat-editor-user-state-with-only-send" }
+llq = { git = "https://github.com/glowcoil/llq/" }
