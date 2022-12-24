@@ -13,6 +13,9 @@ struct MyParams {
     #[persist = "editor-state"]
     editor_state: Arc<EguiState>,
 
+    #[id = "play_gain"]
+    play_gain: FloatParam, // glacefully play/pause
+
     #[id = "bpm"]
     bpm: IntParam,
 
@@ -36,11 +39,16 @@ impl Default for MyPlugin {
 impl Default for MyParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(300, 100),
+            editor_state: EguiState::from_size(300, 120),
+
+            play_gain: FloatParam::new("Play", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0)),
+
             bpm: IntParam::new("BPM", 150, IntRange::Linear { min: 1, max: 300 }),
+
             gain: FloatParam::new(
                 "Gain",
-                util::db_to_gain(0.0),
+                util::db_to_gain(-0.5),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-30.0),
                     max: util::db_to_gain(30.0),
@@ -51,6 +59,7 @@ impl Default for MyParams {
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
             note: IntParam::new(
                 "Note",
                 // A5
@@ -92,6 +101,7 @@ impl Plugin for MyPlugin {
             params.editor_state.clone(),
             (),
             |_, _| {},
+            // TODO: why not `&mut egui_ctx` (e.g. for `egui_ctx.input().consume_key()`) ? https://github.com/BillyDM/egui-baseview/blob/d2512c25bff19c05d73032e5349f3acb03d5da25/src/window.rs#L296
             move |egui_ctx, setter, _state| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
@@ -110,6 +120,17 @@ impl Plugin for MyPlugin {
                             ui.add(widgets::ParamSlider::for_param(&params.note, setter));
                             ui.end_row();
                         });
+
+                    let play_gain = params.play_gain.value();
+                    let is_playing = play_gain > 0.0;
+                    let mut response = ui.button(if is_playing { "Pause" } else { "Play" });
+                    if response.clicked() {
+                        nih_dbg!(play_gain, is_playing);
+                        setter.begin_set_parameter(&params.play_gain);
+                        setter.set_parameter(&params.play_gain, if is_playing { 0.0 } else { 1.0 });
+                        setter.end_set_parameter(&params.play_gain);
+                        response.mark_changed();
+                    }
                 });
             },
         )
@@ -129,6 +150,7 @@ impl Plugin for MyPlugin {
         let note_freq = nih_plug::util::midi_note_to_freq(note);
 
         for samples in buffer.iter_samples() {
+            let play_gain = self.params.play_gain.smoothed.next();
             let gain = self.params.gain.smoothed.next();
             let sine = next_sine(&mut self.sample_phase, note_freq / sample_rate);
             let envelope = next_envelope(
@@ -138,7 +160,7 @@ impl Plugin for MyPlugin {
                 60.0 / bpm,
                 1.0 / sample_rate,
             );
-            let value = gain * envelope * sine;
+            let value = play_gain * gain * envelope * sine;
             for sample in samples {
                 *sample = value;
             }
