@@ -17,7 +17,18 @@ pub struct MyPlugin {
     note_queue_consumer: llq::Consumer<u8>,
     note_queue_producer_drop: llq::Producer<u8>,
     note_queue_consumer_drop: llq::Consumer<u8>,
+
+    queues: Arc<NoteQueue>,
 }
+
+// hack non `Sync` llq queues to be used inside `create_egui_editor` closure
+struct NoteQueue {
+    // TODO: should it require `&mut self` for `push/pop`?
+    //       would it make sense to use just `&self` in the same spirit as usual atomic? https://stackoverflow.com/questions/35810843/why-do-rusts-atomic-types-use-non-mutable-functions-to-mutate-the-value
+    to_audio: (llq::Producer<u8>, llq::Consumer<u8>),
+    from_audio: (llq::Producer<u8>, llq::Consumer<u8>),
+}
+unsafe impl Sync for NoteQueue {}
 
 #[derive(Params)]
 pub struct MyParams {
@@ -42,6 +53,10 @@ impl Default for MyPlugin {
             note_queue_consumer: rx,
             note_queue_producer_drop: tx2,
             note_queue_consumer_drop: rx2,
+            queues: Arc::new(NoteQueue {
+                to_audio: llq::Queue::new().split(),
+                from_audio: llq::Queue::new().split(),
+            }),
         }
     }
 }
@@ -88,6 +103,10 @@ impl Plugin for MyPlugin {
             self.note_queue_producer_drop.push(node); // need to move `node` back to somewhere to avoid dropping on audio thread
         }
 
+        // while let Some(node) = self.queues.to_audio.1.pop() {
+        //     self.queues.from_audio.0.push(node);
+        // }
+
         // iterate all notes
         for (note, note_state) in self.note_states.iter().enumerate() {
             match note_state.dequeue() {
@@ -118,6 +137,7 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let note_states = self.note_states.clone();
+        let queues = self.queues.clone();
         struct UserState {
             is_initial_render: bool,
             note_queue_producer: llq::Producer<u8>,
@@ -156,6 +176,7 @@ impl Plugin for MyPlugin {
                             user_state.is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
                             user_state.note_queue_producer.push(llq::Node::new(0));
+                            // queues.to_audio.0.push(llq::Node::new(0));
                         }
                     });
                 });
