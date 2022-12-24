@@ -1,0 +1,23 @@
+diff --git a/meson.build b/meson.build
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/lib.rs b/src/lib.rs
+index b116a6b..f152575 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -183,6 +183,7 @@ pub struct Consumer<T> {
+ }
+
+ unsafe impl<T: Send> Send for Consumer<T> {}
++unsafe impl<T: Sync> Sync for Consumer<T> {}
+
+ impl<T> Consumer<T> {
+     /// Attempts to remove and return an element from the queue. Returns `None`
+@@ -216,6 +217,7 @@ pub struct Producer<T> {
+ }
+
+ unsafe impl<T: Send> Send for Producer<T> {}
++unsafe impl<T: Sync> Sync for Producer<T> {}
+
+ impl<T> Producer<T> {
+     /// Adds an element to the queue.

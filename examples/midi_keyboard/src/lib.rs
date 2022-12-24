@@ -1,11 +1,10 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets::ParamSlider, EguiState};
 use std::{
-    cell::Cell,
     collections::HashSet,
     sync::{
         atomic::{AtomicIsize, Ordering},
-        Arc,
+        Arc, Mutex, RwLock,
     },
 };
 
@@ -13,7 +12,7 @@ pub struct MyPlugin {
     params: Arc<MyParams>,
     note_states: Vec<Arc<NoteState>>,
 
-    note_queue_producer: Cell<Option<llq::Producer<u8>>>, // moved to editor state
+    note_queue_producer: Arc<RwLock<llq::Producer<u8>>>, // moved to editor state
     note_queue_consumer: llq::Consumer<u8>,
     note_queue_producer_drop: llq::Producer<u8>,
     note_queue_consumer_drop: llq::Consumer<u8>,
@@ -49,7 +48,7 @@ impl Default for MyPlugin {
         Self {
             params: Arc::new(MyParams::default()),
             note_states: (0..128).map(|_| Arc::new(NoteState::default())).collect(),
-            note_queue_producer: Cell::new(Some(tx)),
+            note_queue_producer: Arc::new(RwLock::new(tx)),
             note_queue_consumer: rx,
             note_queue_producer_drop: tx2,
             note_queue_consumer_drop: rx2,
@@ -137,19 +136,13 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let note_states = self.note_states.clone();
-        let queues = self.queues.clone();
-        struct UserState {
-            is_initial_render: bool,
-            note_queue_producer: llq::Producer<u8>,
-        }
+        let note_queue_producer = self.note_queue_producer.clone();
+        let is_initial_render = Arc::new(Mutex::new(true)); // tautological mutex to pass `Sync` check
         create_egui_editor(
             params.editor_state.clone(),
-            UserState {
-                is_initial_render: true,
-                note_queue_producer: self.note_queue_producer.replace(None).unwrap(),
-            },
+            (),
             |_, _| {},
-            move |egui_ctx, setter, user_state| {
+            move |egui_ctx, setter, _| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
                         .num_columns(2)
@@ -172,11 +165,11 @@ impl Plugin for MyPlugin {
                             note_state.enqueue(active_notes.contains(&(note as u8)));
                         }
                         // scroll to center on initial render
-                        if user_state.is_initial_render {
-                            user_state.is_initial_render = false;
+                        let mut is_initial_render_inner = is_initial_render.lock().unwrap();
+                        if *is_initial_render_inner {
+                            *is_initial_render_inner = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
-                            user_state.note_queue_producer.push(llq::Node::new(0));
-                            // queues.to_audio.0.push(llq::Node::new(0));
+                            note_queue_producer.write().unwrap().push(llq::Node::new(0));
                         }
                     });
                 });

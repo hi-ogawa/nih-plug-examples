@@ -132,11 +132,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cbbc9d0964165b47557570cce6c952866c2678457aca742aafc9fb771d30270"
 
 [[package]]
-name = "basedrop"
-version = "0.1.2"
-source = "git+https://github.com/glowcoil/basedrop#aa23a4a096249dcc9a6343b22705e2acc1012daa"
-
-[[package]]
 name = "baseview"
 version = "0.1.0"
 source = "git+https://github.com/robbert-vdh/baseview.git?branch=feature/resize#512c3f2393d606f91963773c73cbf3ab8de5eb57"
@@ -829,7 +824,6 @@ dependencies = [
 [[package]]
 name = "llq"
 version = "0.1.1"
-source = "git+https://github.com/glowcoil/llq#f5707bd832144308b3482c56b088b3076ea3dd25"
 
 [[package]]
 name = "lock_api"
@@ -905,8 +899,8 @@ dependencies = [
 name = "metronome"
 version = "0.0.0"
 dependencies = [
- "nih_plug 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
- "nih_plug_egui 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
+ "nih_plug",
+ "nih_plug_egui",
 ]
 
 [[package]]
@@ -919,18 +913,17 @@ checksum = "6f2dd5c7f8aaf48a76e389068ab25ed80bdbc226b887f9013844c415698c9952"
 name = "midi_click"
 version = "0.0.0"
 dependencies = [
- "nih_plug 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
- "nih_plug_egui 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
+ "nih_plug",
+ "nih_plug_egui",
 ]
 
 [[package]]
 name = "midi_keyboard"
 version = "0.0.0"
 dependencies = [
- "basedrop",
  "llq",
- "nih_plug 0.0.0 (git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send)",
- "nih_plug_egui 0.0.0 (git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send)",
+ "nih_plug",
+ "nih_plug_egui",
 ]
 
 [[package]]
@@ -1002,41 +995,6 @@ dependencies = [
 [[package]]
 name = "nih_plug"
 version = "0.0.0"
-source = "git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send#cfcde13b561d31d543ad9957696308033a63a80a"
-dependencies = [
- "anyhow",
- "assert_no_alloc",
- "atomic_float",
- "atomic_refcell",
- "backtrace",
- "baseview 0.1.0 (git+https://github.com/robbert-vdh/baseview.git?branch=feature/resize)",
- "bitflags",
- "cfg-if",
- "clap",
- "clap-sys",
- "cpal",
- "crossbeam",
- "jack",
- "lazy_static",
- "libc",
- "log",
- "midi-consts",
- "nih_plug_derive 0.1.0 (git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send)",
- "parking_lot",
- "raw-window-handle 0.4.3",
- "rtrb",
- "serde",
- "serde_json",
- "simplelog",
- "vst3-sys",
- "widestring",
- "win_dbg_logger",
- "windows 0.32.0",
-]
-
-[[package]]
-name = "nih_plug"
-version = "0.0.0"
 source = "git+https://github.com/robbert-vdh/nih-plug#78c84b75962af61393e67dabb122b28d2e968625"
 dependencies = [
  "anyhow",
@@ -1056,7 +1014,7 @@ dependencies = [
  "libc",
  "log",
  "midi-consts",
- "nih_plug_derive 0.1.0 (git+https://github.com/robbert-vdh/nih-plug)",
+ "nih_plug_derive",
  "parking_lot",
  "raw-window-handle 0.4.3",
  "rtrb",
@@ -1072,36 +1030,11 @@ dependencies = [
 [[package]]
 name = "nih_plug_derive"
 version = "0.1.0"
-source = "git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send#cfcde13b561d31d543ad9957696308033a63a80a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "nih_plug_derive"
-version = "0.1.0"
 source = "git+https://github.com/robbert-vdh/nih-plug#78c84b75962af61393e67dabb122b28d2e968625"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "nih_plug_egui"
-version = "0.0.0"
-source = "git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send#cfcde13b561d31d543ad9957696308033a63a80a"
-dependencies = [
- "baseview 0.1.0 (git+https://github.com/RustAudio/baseview.git?rev=eae4033e7d2cc9c31ccaa2794d5d08eedf2f510c)",
- "crossbeam",
- "egui",
- "egui-baseview",
- "lazy_static",
- "nih_plug 0.0.0 (git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send)",
- "parking_lot",
- "serde",
 ]
 
 [[package]]
@@ -1114,7 +1047,7 @@ dependencies = [
  "egui",
  "egui-baseview",
  "lazy_static",
- "nih_plug 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
+ "nih_plug",
  "parking_lot",
  "serde",
 ]
@@ -1797,8 +1730,8 @@ checksum = "375812fa44dab6df41c195cd2f7fecb488f6c09fbaafb62807488cefab642bff"
 name = "ui_to_midi"
 version = "0.0.0"
 dependencies = [
- "nih_plug 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
- "nih_plug_egui 0.0.0 (git+https://github.com/robbert-vdh/nih-plug)",
+ "nih_plug",
+ "nih_plug_egui",
 ]
 
 [[package]]
