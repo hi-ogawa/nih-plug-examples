@@ -132,6 +132,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cbbc9d0964165b47557570cce6c952866c2678457aca742aafc9fb771d30270"
 
 [[package]]
+name = "basedrop"
+version = "0.1.2"
+source = "git+https://github.com/glowcoil/basedrop#aa23a4a096249dcc9a6343b22705e2acc1012daa"
+
+[[package]]
 name = "baseview"
 version = "0.1.0"
 source = "git+https://github.com/robbert-vdh/baseview.git?branch=feature/resize#512c3f2393d606f91963773c73cbf3ab8de5eb57"
@@ -824,7 +829,7 @@ dependencies = [
 [[package]]
 name = "llq"
 version = "0.1.1"
-source = "git+https://github.com/glowcoil/llq/#f5707bd832144308b3482c56b088b3076ea3dd25"
+source = "git+https://github.com/glowcoil/llq#f5707bd832144308b3482c56b088b3076ea3dd25"
 
 [[package]]
 name = "lock_api"
@@ -922,6 +927,7 @@ dependencies = [
 name = "midi_keyboard"
 version = "0.0.0"
 dependencies = [
+ "basedrop",
  "llq",
  "nih_plug 0.0.0 (git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send)",
  "nih_plug_egui 0.0.0 (git+https://github.com/hi-ogawa/nih-plug?branch=feat-editor-user-state-with-only-send)",

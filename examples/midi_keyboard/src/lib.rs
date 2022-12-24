@@ -15,6 +15,8 @@ pub struct MyPlugin {
 
     note_queue_producer: Cell<Option<llq::Producer<u8>>>, // moved to editor state
     note_queue_consumer: llq::Consumer<u8>,
+    note_queue_producer_drop: llq::Producer<u8>,
+    note_queue_consumer_drop: llq::Consumer<u8>,
 }
 
 #[derive(Params)]
@@ -32,11 +34,14 @@ pub struct MyParams {
 impl Default for MyPlugin {
     fn default() -> Self {
         let (tx, rx) = llq::Queue::new().split();
+        let (tx2, rx2) = llq::Queue::new().split();
         Self {
             params: Arc::new(MyParams::default()),
             note_states: (0..128).map(|_| Arc::new(NoteState::default())).collect(),
             note_queue_producer: Cell::new(Some(tx)),
             note_queue_consumer: rx,
+            note_queue_producer_drop: tx2,
+            note_queue_consumer_drop: rx2,
         }
     }
 }
@@ -78,8 +83,9 @@ impl Plugin for MyPlugin {
         let channel = self.params.channel.value() as u8;
         let velocity = self.params.velocity.value();
 
-        while let Some(_) = self.note_queue_consumer.pop() {
-            nih_dbg!("node");
+        while let Some(node) = self.note_queue_consumer.pop() {
+            nih_dbg!(*node);
+            self.note_queue_producer_drop.push(node); // need to move `node` back to somewhere to avoid dropping on audio thread
         }
 
         // iterate all notes
@@ -115,14 +121,12 @@ impl Plugin for MyPlugin {
         struct UserState {
             is_initial_render: bool,
             note_queue_producer: llq::Producer<u8>,
-            note_nodes: Vec<llq::Node<u8>>,
         }
         create_egui_editor(
             params.editor_state.clone(),
             UserState {
                 is_initial_render: true,
                 note_queue_producer: self.note_queue_producer.replace(None).unwrap(),
-                note_nodes: (0..128).map(|i| llq::Node::new(i)).collect(),
             },
             |_, _| {},
             move |egui_ctx, setter, user_state| {
@@ -151,9 +155,7 @@ impl Plugin for MyPlugin {
                         if user_state.is_initial_render {
                             user_state.is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
-                            // user_state.note_queue_producer.push(user_state.note_nodes[0]);
                             user_state.note_queue_producer.push(llq::Node::new(0));
-                            // TODO: when does `Node` drop?
                         }
                     });
                 });
