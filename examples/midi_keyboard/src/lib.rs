@@ -101,16 +101,16 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let note_states = self.note_states.clone();
-        struct MiscState {
+        struct UserState {
             is_initial_render: bool,
         }
         create_egui_editor(
             params.editor_state.clone(),
-            MiscState {
+            UserState {
                 is_initial_render: true,
             },
             |_, _| {},
-            move |egui_ctx, setter, misc_state| {
+            move |egui_ctx, setter, user_state| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
                         .num_columns(2)
@@ -133,8 +133,8 @@ impl Plugin for MyPlugin {
                             note_state.enqueue(active_notes.contains(&(note as u8)));
                         }
                         // scroll to center on initial render
-                        if misc_state.is_initial_render {
-                            misc_state.is_initial_render = false;
+                        if user_state.is_initial_render {
+                            user_state.is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
                         }
                     });
