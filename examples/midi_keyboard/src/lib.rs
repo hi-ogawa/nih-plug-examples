@@ -3,7 +3,7 @@ use nih_plug_egui::{create_egui_editor, egui, widgets::ParamSlider, EguiState};
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicBool, AtomicIsize, Ordering},
+        atomic::{AtomicIsize, Ordering},
         Arc,
     },
 };
@@ -101,12 +101,16 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let note_states = self.note_states.clone();
-        let is_initial_render = AtomicBool::new(true); // editor callback should be on the same thread, but needs atomic to pass borrow check
+        struct UserState {
+            is_initial_render: bool,
+        }
         create_egui_editor(
             params.editor_state.clone(),
-            (),
+            UserState {
+                is_initial_render: true,
+            },
             |_, _| {},
-            move |egui_ctx, setter, _state| {
+            move |egui_ctx, setter, user_state| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
                         .num_columns(2)
@@ -129,8 +133,8 @@ impl Plugin for MyPlugin {
                             note_state.enqueue(active_notes.contains(&(note as u8)));
                         }
                         // scroll to center on initial render
-                        if is_initial_render.load(Ordering::Relaxed) {
-                            is_initial_render.store(false, Ordering::Relaxed);
+                        if user_state.is_initial_render {
+                            user_state.is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
                         }
                     });
@@ -290,11 +294,11 @@ struct NoteState(AtomicIsize);
 
 impl NoteState {
     fn set(&self, value: isize) {
-        self.0.store(value, Ordering::Relaxed);
+        self.0.store(value, Ordering::Release);
     }
 
     fn get(&self) -> isize {
-        self.0.load(Ordering::Relaxed)
+        self.0.load(Ordering::Acquire)
     }
 
     fn enqueue(&self, active: bool) {
