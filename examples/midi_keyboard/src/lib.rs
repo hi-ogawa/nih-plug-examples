@@ -2,6 +2,11 @@ use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets::ParamSlider, EguiState};
 use std::sync::{Arc, Mutex};
 
+// note that `Mutex.try_lock` is used instead of `Mutex.lock` in all places
+// since the usages of `Arc<Mutex<...>>` are only for borrow-checker workaround and
+// each case is pre-determined to be accssed by a single thread.
+// the necessity of workaround might be due to typing of `create_egui_editor` which requires `Sync` for callbacks.
+
 pub struct MyPlugin {
     params: Arc<MyParams>,
 
@@ -112,7 +117,7 @@ impl Plugin for MyPlugin {
         let note_queue_producer = self.note_queue_producer.clone();
         let note_queue_consumer_drop = self.note_queue_consumer_drop.clone();
         let note_states = self.note_state.clone();
-        let is_initial_render = Arc::new(Mutex::new(true)); // tautological lock to workaroud `Sync` check
+        let is_initial_render = Arc::new(Mutex::new(true));
         create_egui_editor(
             params.editor_state.clone(),
             (),
@@ -137,8 +142,8 @@ impl Plugin for MyPlugin {
                     egui::ScrollArea::horizontal().show(ui, |ui| {
                         let (response, note_states_ui) = piano_ui(ui);
 
-                        let mut note_states = note_states.lock().unwrap();
-                        let mut note_queue_producer = note_queue_producer.lock().unwrap();
+                        let mut note_states = note_states.try_lock().unwrap();
+                        let mut note_queue_producer = note_queue_producer.try_lock().unwrap();
                         for note in 0..MAX_NOTE {
                             match (note_states[note], note_states_ui[note]) {
                                 (false, true) => {
@@ -155,7 +160,7 @@ impl Plugin for MyPlugin {
                             }
                         }
                         // scroll to center on initial render
-                        let mut is_initial_render = is_initial_render.lock().unwrap();
+                        let mut is_initial_render = is_initial_render.try_lock().unwrap();
                         if *is_initial_render {
                             *is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
@@ -163,7 +168,7 @@ impl Plugin for MyPlugin {
                     });
 
                     // cleanup llq nodes
-                    let mut note_queue_consumer_drop = note_queue_consumer_drop.lock().unwrap();
+                    let mut note_queue_consumer_drop = note_queue_consumer_drop.try_lock().unwrap();
                     while let Some(_node_to_drop) = note_queue_consumer_drop.pop() {}
                 });
             },
