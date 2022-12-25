@@ -3,9 +3,6 @@
 simple examples to get familiar with nih-plug and egui
 
 ```sh
-# download and patch dependencies
-meson subprojects download
-
 # run as a standalone app (e.g. jack app)
 cargo run -p midi_keyboard
 ```
