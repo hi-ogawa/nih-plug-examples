@@ -1,5 +1,0 @@
-[wrap-git]
-url = https://github.com/glowcoil/llq
-revision = v0.1.1
-depth = 1
-diff_files = llq.diff
