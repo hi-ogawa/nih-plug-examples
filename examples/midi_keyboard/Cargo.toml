@@ -9,4 +9,4 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug" }
-llq = { path = "../../subprojects/llq" }
+llq = { path = "../../thirdparty/llq" }

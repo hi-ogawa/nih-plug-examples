@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     sync::{
         atomic::{AtomicIsize, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, Mutex,
     },
 };
 
@@ -12,22 +12,11 @@ pub struct MyPlugin {
     params: Arc<MyParams>,
     note_states: Vec<Arc<NoteState>>,
 
-    note_queue_producer: Arc<RwLock<llq::Producer<u8>>>, // moved to editor state
-    note_queue_consumer: llq::Consumer<u8>,
-    note_queue_producer_drop: llq::Producer<u8>,
-    note_queue_consumer_drop: llq::Consumer<u8>,
-
-    queues: Arc<NoteQueue>,
+    note_queue_producer: Arc<Mutex<llq::Producer<u8>>>, // main thread
+    note_queue_consumer: llq::Consumer<u8>,             // audio thread
+    note_queue_producer_drop: llq::Producer<u8>,        // audio thread
+    note_queue_consumer_drop: llq::Consumer<u8>,        // main thread
 }
-
-// hack non `Sync` llq queues to be used inside `create_egui_editor` closure
-struct NoteQueue {
-    // TODO: should it require `&mut self` for `push/pop`?
-    //       would it make sense to use just `&self` in the same spirit as usual atomic? https://stackoverflow.com/questions/35810843/why-do-rusts-atomic-types-use-non-mutable-functions-to-mutate-the-value
-    to_audio: (llq::Producer<u8>, llq::Consumer<u8>),
-    from_audio: (llq::Producer<u8>, llq::Consumer<u8>),
-}
-unsafe impl Sync for NoteQueue {}
 
 #[derive(Params)]
 pub struct MyParams {
@@ -48,14 +37,10 @@ impl Default for MyPlugin {
         Self {
             params: Arc::new(MyParams::default()),
             note_states: (0..128).map(|_| Arc::new(NoteState::default())).collect(),
-            note_queue_producer: Arc::new(RwLock::new(tx)),
+            note_queue_producer: Arc::new(Mutex::new(tx)),
             note_queue_consumer: rx,
             note_queue_producer_drop: tx2,
             note_queue_consumer_drop: rx2,
-            queues: Arc::new(NoteQueue {
-                to_audio: llq::Queue::new().split(),
-                from_audio: llq::Queue::new().split(),
-            }),
         }
     }
 }
@@ -101,10 +86,6 @@ impl Plugin for MyPlugin {
             nih_dbg!(*node);
             self.note_queue_producer_drop.push(node); // need to move `node` back to somewhere to avoid dropping on audio thread
         }
-
-        // while let Some(node) = self.queues.to_audio.1.pop() {
-        //     self.queues.from_audio.0.push(node);
-        // }
 
         // iterate all notes
         for (note, note_state) in self.note_states.iter().enumerate() {
@@ -165,11 +146,10 @@ impl Plugin for MyPlugin {
                             note_state.enqueue(active_notes.contains(&(note as u8)));
                         }
                         // scroll to center on initial render
-                        let mut is_initial_render_inner = is_initial_render.lock().unwrap();
-                        if *is_initial_render_inner {
-                            *is_initial_render_inner = false;
+                        if *is_initial_render.lock().unwrap() {
+                            *is_initial_render.lock().unwrap() = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
-                            note_queue_producer.write().unwrap().push(llq::Node::new(0));
+                            note_queue_producer.lock().unwrap().push(llq::Node::new(0));
                         }
                     });
                 });
