@@ -1,22 +1,21 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets::ParamSlider, EguiState};
-use std::{
-    collections::HashSet,
-    sync::{
-        atomic::{AtomicIsize, Ordering},
-        Arc, Mutex,
-    },
-};
+use std::sync::{Arc, Mutex};
 
 pub struct MyPlugin {
     params: Arc<MyParams>,
-    note_states: Vec<Arc<NoteState>>,
 
-    note_queue_producer: Arc<Mutex<llq::Producer<u8>>>, // main thread
-    note_queue_consumer: llq::Consumer<u8>,             // audio thread
-    note_queue_producer_drop: llq::Producer<u8>,        // audio thread
-    note_queue_consumer_drop: llq::Consumer<u8>,        // main thread
+    // audio thread owns `Plugin` via `process(&mut Plugin)` so other threads (gui/background) requires `Arc<Mutex<...>>` to workaround mutability.
+    // note that when node is "popped" in audio thread, it has to be moved back to a queue to avoid drop/deallocation.
+    note_queue_producer: Arc<Mutex<llq::Producer<MyEvent>>>, // gui
+    note_queue_consumer: llq::Consumer<MyEvent>,             // audio
+    note_queue_producer_drop: llq::Producer<MyEvent>,        // audio
+    note_queue_consumer_drop: Arc<Mutex<llq::Consumer<MyEvent>>>, // gui
+
+    note_state: Arc<Mutex<Vec<bool>>>, // gui
 }
+
+struct MyEvent(u8, bool); // (note, on/off)
 
 #[derive(Params)]
 pub struct MyParams {
@@ -30,17 +29,19 @@ pub struct MyParams {
     velocity: FloatParam,
 }
 
+const MAX_NOTE: usize = 128;
+
 impl Default for MyPlugin {
     fn default() -> Self {
-        let (tx, rx) = llq::Queue::new().split();
+        let (tx1, rx1) = llq::Queue::new().split();
         let (tx2, rx2) = llq::Queue::new().split();
         Self {
             params: Arc::new(MyParams::default()),
-            note_states: (0..128).map(|_| Arc::new(NoteState::default())).collect(),
-            note_queue_producer: Arc::new(Mutex::new(tx)),
-            note_queue_consumer: rx,
+            note_queue_producer: Arc::new(Mutex::new(tx1)),
+            note_queue_consumer: rx1,
             note_queue_producer_drop: tx2,
-            note_queue_consumer_drop: rx2,
+            note_queue_consumer_drop: Arc::new(Mutex::new(rx2)),
+            note_state: Arc::new(Mutex::new(vec![false; MAX_NOTE])),
         }
     }
 }
@@ -83,42 +84,35 @@ impl Plugin for MyPlugin {
         let velocity = self.params.velocity.value();
 
         while let Some(node) = self.note_queue_consumer.pop() {
-            nih_dbg!(*node);
+            let MyEvent(note, is_on) = *node;
+            if is_on {
+                context.send_event(NoteEvent::NoteOn {
+                    timing: 0,
+                    voice_id: None,
+                    channel,
+                    note,
+                    velocity,
+                });
+            } else {
+                context.send_event(NoteEvent::NoteOff {
+                    timing: 0,
+                    voice_id: None,
+                    channel,
+                    note,
+                    velocity,
+                });
+            }
             self.note_queue_producer_drop.push(node); // need to move `node` back to somewhere to avoid dropping on audio thread
-        }
-
-        // iterate all notes
-        for (note, note_state) in self.note_states.iter().enumerate() {
-            match note_state.dequeue() {
-                Some(true) => {
-                    context.send_event(NoteEvent::NoteOn {
-                        timing: 0,
-                        voice_id: None,
-                        channel,
-                        note: note as u8,
-                        velocity,
-                    });
-                }
-                Some(false) => {
-                    context.send_event(NoteEvent::NoteOff {
-                        timing: 0,
-                        voice_id: None,
-                        channel,
-                        note: note as u8,
-                        velocity,
-                    });
-                }
-                _ => {}
-            };
         }
         ProcessStatus::Normal
     }
 
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
-        let note_states = self.note_states.clone();
         let note_queue_producer = self.note_queue_producer.clone();
-        let is_initial_render = Arc::new(Mutex::new(true)); // tautological mutex to pass `Sync` check
+        let note_queue_consumer_drop = self.note_queue_consumer_drop.clone();
+        let note_states = self.note_state.clone();
+        let is_initial_render = Arc::new(Mutex::new(true)); // tautological lock to workaroud `Sync` check
         create_egui_editor(
             params.editor_state.clone(),
             (),
@@ -141,17 +135,36 @@ impl Plugin for MyPlugin {
                     ui.separator();
 
                     egui::ScrollArea::horizontal().show(ui, |ui| {
-                        let (response, active_notes) = piano_ui(ui);
-                        for (note, note_state) in note_states.iter().enumerate() {
-                            note_state.enqueue(active_notes.contains(&(note as u8)));
+                        let (response, note_states_ui) = piano_ui(ui);
+
+                        let mut note_states = note_states.lock().unwrap();
+                        let mut note_queue_producer = note_queue_producer.lock().unwrap();
+                        for note in 0..MAX_NOTE {
+                            match (note_states[note], note_states_ui[note]) {
+                                (false, true) => {
+                                    note_states[note] = true;
+                                    note_queue_producer
+                                        .push(llq::Node::new(MyEvent(note as u8, true)));
+                                }
+                                (true, false) => {
+                                    note_states[note] = false;
+                                    note_queue_producer
+                                        .push(llq::Node::new(MyEvent(note as u8, false)));
+                                }
+                                _ => {}
+                            }
                         }
                         // scroll to center on initial render
-                        if *is_initial_render.lock().unwrap() {
-                            *is_initial_render.lock().unwrap() = false;
+                        let mut is_initial_render = is_initial_render.lock().unwrap();
+                        if *is_initial_render {
+                            *is_initial_render = false;
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
-                            note_queue_producer.lock().unwrap().push(llq::Node::new(0));
                         }
                     });
+
+                    // cleanup llq nodes
+                    let mut note_queue_consumer_drop = note_queue_consumer_drop.lock().unwrap();
+                    while let Some(_node_to_drop) = note_queue_consumer_drop.pop() {}
                 });
             },
         )
@@ -168,7 +181,7 @@ struct NoteRect {
     rect: egui::Rect,
 }
 
-pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, HashSet<u8>) {
+pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, Vec<bool>) {
     const C4: u8 = 60;
     const OCTAVE: u8 = 12;
     let note_rects = generate_note_rects(C4 - 3 * OCTAVE, C4 + 3 * OCTAVE);
@@ -196,9 +209,9 @@ pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, HashSet<u8>) {
     //
     // keyboard shortcut
     //
-    let mut active_notes: HashSet<u8> = HashSet::new();
+    let mut note_states: Vec<bool> = vec![false; MAX_NOTE];
     if let Some(note) = active_note_by_pointer {
-        active_notes.insert(note);
+        note_states[note as usize] = true;
     }
 
     let note_to_key = {
@@ -216,7 +229,7 @@ pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, HashSet<u8>) {
 
     for (note, key) in note_to_key {
         if ui.ctx().input().key_down(key) {
-            active_notes.insert(note);
+            note_states[note as usize] = true;
         }
     }
 
@@ -230,7 +243,7 @@ pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, HashSet<u8>) {
         } else {
             egui::Color32::WHITE
         };
-        if active_notes.contains(&el.note) {
+        if note_states[el.note as usize] {
             response.mark_changed();
             color = egui::Color32::LIGHT_BLUE;
         }
@@ -248,7 +261,7 @@ pub fn piano_ui(ui: &mut egui::Ui) -> (egui::Response, HashSet<u8>) {
         }
     }
 
-    (response, active_notes)
+    (response, note_states)
 }
 
 fn is_black_key(note: usize) -> bool {
@@ -286,58 +299,4 @@ fn generate_note_rects(note_begin: u8, note_end: u8) -> Vec<NoteRect> {
 
     result.sort_by_key(|el| is_black_key(el.note as usize)); // black key has higher z
     result
-}
-
-//
-// inter-thread note state management
-//
-
-// flowchart in mermaid https://mermaid.live/edit#pako:eNptj11rwjAUhv9KOFcb1NLUdm1zMVCrMAa6Ib2ZKSOYdBZsIlmK68T_vlPFfWEuDsk575MnOcDaSAUMqq3ZrzfCOq4JrtFqMZuVZDAgHB5VR3Kz1-SmeCBuY5WQtxxwdk_Gq8X89bmYFtO8PINjMvCRWSotydw4tUBs1Mra_CJ9JCdIlj1wxiY_quLpiijv3_PXlP83VdV11Qg8aJRtRC3xo4ee5uA2qlEcGG6lqkS7dRy4PmK03Unh1FTWzlhgldi-Kw9E68yy02tgzrbqEspr8WZF853aCf1iTHMJ4RHYAT6AhdmdT9OMJsMwS-IoSjzogNE09CkNsDFMcBIl8dGDz9MFgR9HAQJ9CYMwTenxCya1e88
-// flowchart
-//     0[OFF] -- "key down (UI thread)" --> 1[ON_QUEUED]
-//     1 -. "send NoteOn (Audio thread)" .-> 2[ON]
-//     2 -- "key up (UI thread)" --> 3[OFF_QUEUED]
-//     3 -. "send NoteOff (Audio thread)" .-> 0
-const NOTE_STATE_OFF: isize = 0;
-const NOTE_STATE_ON_QUEUED: isize = 1;
-const NOTE_STATE_ON: isize = 2;
-const NOTE_STATE_OFF_QUEUED: isize = 3;
-
-#[derive(Debug, Default)]
-struct NoteState(AtomicIsize);
-
-impl NoteState {
-    fn set(&self, value: isize) {
-        self.0.store(value, Ordering::Release);
-    }
-
-    fn get(&self) -> isize {
-        self.0.load(Ordering::Acquire)
-    }
-
-    fn enqueue(&self, active: bool) {
-        match (self.get(), active) {
-            (NOTE_STATE_OFF, true) => {
-                self.set(NOTE_STATE_ON_QUEUED);
-            }
-            (NOTE_STATE_ON, false) => {
-                self.set(NOTE_STATE_OFF_QUEUED);
-            }
-            _ => {}
-        }
-    }
-
-    fn dequeue(&self) -> Option<bool> {
-        match self.get() {
-            NOTE_STATE_ON_QUEUED => {
-                self.set(NOTE_STATE_ON);
-                Some(true)
-            }
-            NOTE_STATE_OFF_QUEUED => {
-                self.set(NOTE_STATE_OFF);
-                Some(false)
-            }
-            _ => None,
-        }
-    }
 }
