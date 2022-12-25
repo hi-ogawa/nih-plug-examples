@@ -1,0 +1,3 @@
+[submodule "thirdparty/llq"]
+	path = thirdparty/llq
+	url = git@github.com:hi-ogawa/llq.git
