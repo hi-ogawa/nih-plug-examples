@@ -822,6 +822,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "llq"
+version = "0.1.1"
+
+[[package]]
 name = "lock_api"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,6 +921,7 @@ dependencies = [
 name = "midi_keyboard"
 version = "0.0.0"
 dependencies = [
+ "llq",
  "nih_plug",
  "nih_plug_egui",
 ]
