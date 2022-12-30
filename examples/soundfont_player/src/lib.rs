@@ -81,10 +81,10 @@ impl Plugin for MyPlugin {
         // TODO: embed default + choose from dialog UI
         let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
         let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
+        for preset in sfont.presets.iter() {
+            println!("{:?}", (preset.name(), preset.banknum(), preset.num()));
+        }
         synth.add_font(sfont, true);
-
-        // TODO: how to enumerate the list of presets? https://github.com/PolyMeilex/OxiSynth/blob/16875cee0dec96c7ba67db2d9263e2766ddc27b1/src/core/synth/soundfont.rs#L20
-        // sfont.presets;
 
         true
     }
