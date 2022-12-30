@@ -4,8 +4,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct MyPlugin {
     params: Arc<MyParams>,
-    synth: Arc<Mutex<fluidlite::Synth>>,
-    synth2: Arc<Mutex<oxisynth::Synth>>,
+    synth: Arc<Mutex<oxisynth::Synth>>,
 }
 
 // HACK: fluidlite::Synth is not Sync, thus Arc<fluidlite::Synth> is not Send, which is required for `impl Plugin for MyPlugin`
@@ -22,20 +21,9 @@ struct MyParams {
 
 impl Default for MyPlugin {
     fn default() -> Self {
-        let mut synth = oxisynth::Synth::default();
-        let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
-        let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
-        synth.add_font(sfont, true);
-
-        // TODO: how to enumerate the list of presets? https://github.com/PolyMeilex/OxiSynth/blob/16875cee0dec96c7ba67db2d9263e2766ddc27b1/src/core/synth/soundfont.rs#L20
-        // sfont.presets;
-
         Self {
             params: Arc::new(MyParams::default()),
-            synth: Arc::new(Mutex::new(
-                fluidlite::Synth::new(fluidlite::Settings::new().unwrap()).unwrap(),
-            )),
-            synth2: Arc::new(Mutex::new(synth)),
+            synth: Arc::new(Mutex::new(oxisynth::Synth::default())),
         }
     }
 }
@@ -87,12 +75,17 @@ impl Plugin for MyPlugin {
         buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        let synth = self.synth.lock().unwrap();
+        let mut synth = self.synth.lock().unwrap();
         synth.set_sample_rate(buffer_config.sample_rate);
+
         // TODO: embed default + choose from dialog UI
-        synth
-            .sfload("/usr/share/soundfonts/FluidR3_GM.sf2", true)
-            .unwrap();
+        let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
+        let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
+        synth.add_font(sfont, true);
+
+        // TODO: how to enumerate the list of presets? https://github.com/PolyMeilex/OxiSynth/blob/16875cee0dec96c7ba67db2d9263e2766ddc27b1/src/core/synth/soundfont.rs#L20
+        // sfont.presets;
+
         true
     }
 
@@ -127,8 +120,7 @@ impl Plugin for MyPlugin {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let synth = self.synth.try_lock().unwrap(); // audio thread should not block
-        let mut synth2 = self.synth2.try_lock().unwrap();
+        let mut synth = self.synth.try_lock().unwrap();
 
         //
         // handle note on/off
@@ -144,14 +136,6 @@ impl Plugin for MyPlugin {
                     velocity,
                 } => {
                     synth
-                        .note_on(
-                            channel as u32,
-                            note as u32,
-                            denormalize_velocity(velocity) as u32,
-                        )
-                        .unwrap();
-                    // TODO: remove heap allocation e.g. https://github.com/PolyMeilex/OxiSynth/blob/16875cee0dec96c7ba67db2d9263e2766ddc27b1/src/core/synth/internal/midi.rs#L70
-                    synth2
                         .send_event(oxisynth::MidiEvent::NoteOn {
                             channel,
                             key: note,
@@ -166,8 +150,7 @@ impl Plugin for MyPlugin {
                     note,
                     velocity: _,
                 } => {
-                    synth.note_off(channel as u32, note as u32).unwrap();
-                    synth2
+                    synth
                         .send_event(oxisynth::MidiEvent::NoteOff { channel, key: note })
                         .unwrap();
                 }
@@ -189,8 +172,7 @@ impl Plugin for MyPlugin {
 
             // write left/right samples
             let mut synth_samples = [0f32; 2];
-            synth2.write(&mut synth_samples[..]);
-            // synth.write(&mut synth_samples[..]).unwrap();
+            synth.write(&mut synth_samples[..]);
 
             for (synth_sample, sample) in synth_samples.iter().zip(samples) {
                 *sample = gain * *synth_sample;
