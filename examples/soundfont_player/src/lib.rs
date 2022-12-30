@@ -78,9 +78,16 @@ impl Plugin for MyPlugin {
         let mut synth = self.synth.lock().unwrap();
         synth.set_sample_rate(buffer_config.sample_rate);
 
-        // TODO: embed default + choose from dialog UI
-        let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
-        let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
+        // TODO: load soundfont from UI
+        // let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
+        // let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
+
+        // embed 1KB of simplest soundfont for quick demo
+        const EMBEDDED_SOUNDFONT: &[u8] =
+            include_bytes!("../../../thirdparty/OxiSynth/testdata/sin.sf2");
+        let mut cursor = std::io::Cursor::new(EMBEDDED_SOUNDFONT);
+        let sfont = oxisynth::SoundFont::load(&mut cursor).unwrap();
+
         for preset in sfont.presets.iter() {
             println!("{:?}", (preset.name(), preset.banknum(), preset.num()));
         }
@@ -88,8 +95,6 @@ impl Plugin for MyPlugin {
 
         true
     }
-
-    fn reset(&mut self) {}
 
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
