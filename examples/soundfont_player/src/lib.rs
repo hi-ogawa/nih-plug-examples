@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 pub struct MyPlugin {
     params: Arc<MyParams>,
     synth: Arc<Mutex<fluidlite::Synth>>,
+    synth2: Arc<Mutex<oxisynth::Synth>>,
 }
 
 // HACK: fluidlite::Synth is not Sync, thus Arc<fluidlite::Synth> is not Send, which is required for `impl Plugin for MyPlugin`
@@ -21,11 +22,20 @@ struct MyParams {
 
 impl Default for MyPlugin {
     fn default() -> Self {
+        let mut synth = oxisynth::Synth::default();
+        let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
+        let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
+        synth.add_font(sfont, true);
+
+        // TODO: how to enumerate the list of presets? https://github.com/PolyMeilex/OxiSynth/blob/16875cee0dec96c7ba67db2d9263e2766ddc27b1/src/core/synth/soundfont.rs#L20
+        // sfont.presets;
+
         Self {
             params: Arc::new(MyParams::default()),
             synth: Arc::new(Mutex::new(
                 fluidlite::Synth::new(fluidlite::Settings::new().unwrap()).unwrap(),
             )),
+            synth2: Arc::new(Mutex::new(synth)),
         }
     }
 }
@@ -94,7 +104,6 @@ impl Plugin for MyPlugin {
             params.editor_state.clone(),
             (),
             |_, _| {},
-            // TODO: why not `&mut egui_ctx` (e.g. for `egui_ctx.input().consume_key()`) ? https://github.com/BillyDM/egui-baseview/blob/d2512c25bff19c05d73032e5349f3acb03d5da25/src/window.rs#L296
             move |egui_ctx, setter, _state| {
                 // TODO: file dialog to choose soundfont
                 // TODO: settings for reverb, chorus, bank, patch
@@ -119,6 +128,7 @@ impl Plugin for MyPlugin {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         let synth = self.synth.try_lock().unwrap(); // audio thread should not block
+        let mut synth2 = self.synth2.try_lock().unwrap();
 
         //
         // handle note on/off
@@ -140,6 +150,14 @@ impl Plugin for MyPlugin {
                             denormalize_velocity(velocity) as u32,
                         )
                         .unwrap();
+                    // TODO: remove heap allocation e.g. https://github.com/PolyMeilex/OxiSynth/blob/16875cee0dec96c7ba67db2d9263e2766ddc27b1/src/core/synth/internal/midi.rs#L70
+                    synth2
+                        .send_event(oxisynth::MidiEvent::NoteOn {
+                            channel,
+                            key: note,
+                            vel: denormalize_velocity(velocity) as u8,
+                        })
+                        .unwrap();
                 }
                 NoteEvent::NoteOff {
                     timing: _,
@@ -149,6 +167,9 @@ impl Plugin for MyPlugin {
                     velocity: _,
                 } => {
                     synth.note_off(channel as u32, note as u32).unwrap();
+                    synth2
+                        .send_event(oxisynth::MidiEvent::NoteOff { channel, key: note })
+                        .unwrap();
                 }
                 _ => {
                     nih_dbg!("[WARN] unsupported event: {}", event);
@@ -161,28 +182,18 @@ impl Plugin for MyPlugin {
         //
 
         assert!(buffer.channels() == 2);
-        unsafe {
-            synth
-                .write_f32(
-                    buffer.len(),
-                    buffer.as_slice()[0].as_mut_ptr(),
-                    0,
-                    1,
-                    buffer.as_slice()[1].as_mut_ptr(),
-                    0,
-                    1,
-                )
-                .unwrap()
-        };
-
-        //
-        // post process gain
-        //
 
         for samples in buffer.iter_samples() {
+            // params
             let gain = self.params.gain.smoothed.next();
-            for sample in samples {
-                *sample *= gain;
+
+            // write left/right samples
+            let mut synth_samples = [0f32; 2];
+            synth2.write(&mut synth_samples[..]);
+            // synth.write(&mut synth_samples[..]).unwrap();
+
+            for (synth_sample, sample) in synth_samples.iter().zip(samples) {
+                *sample = gain * *synth_sample;
             }
         }
 
