@@ -561,6 +561,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc-comment"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -627,6 +633,24 @@ dependencies = [
  "emath",
  "nohash-hasher",
  "parking_lot",
+]
+
+[[package]]
+name = "fluidlite"
+version = "0.2.1"
+source = "git+https://github.com/katyo/fluidlite-rs#4a133fc0a5a4578df19d32dde6cacd995a65ccca"
+dependencies = [
+ "bitflags",
+ "doc-comment",
+ "fluidlite-sys",
+]
+
+[[package]]
+name = "fluidlite-sys"
+version = "0.2.1"
+source = "git+https://github.com/katyo/fluidlite-rs#4a133fc0a5a4578df19d32dde6cacd995a65ccca"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -1554,6 +1578,15 @@ checksum = "0a345c870a1fae0b1b779085e81b51e614767c239e93503588e54c5b17f4b0e8"
 dependencies = [
  "smithay-client-toolkit",
  "wayland-client",
+]
+
+[[package]]
+name = "soundfont_player"
+version = "0.0.0"
+dependencies = [
+ "fluidlite",
+ "nih_plug",
+ "nih_plug_egui",
 ]
 
 [[package]]
