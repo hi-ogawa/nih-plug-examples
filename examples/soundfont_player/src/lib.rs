@@ -135,6 +135,8 @@ impl Plugin for MyPlugin {
                             let mut current_preset = params.preset.lock().unwrap();
 
                             ui.label("Soundfont");
+                            // TODO: egui-baseview doesn't support hyperlink? (though egui-winit does https://github.com/emilk/egui/blob/34f587d1e1cc69146f7a02f20903e4f573030ffd/crates/egui-winit/src/lib.rs#L678)
+                            // ui.hyperlink_to("Soundfont", "https://github.com/FluidSynth/fluidsynth/wiki/SoundFont");
                             ui.horizontal(|ui| {
                                 egui::ComboBox::from_id_source("soundfont")
                                     .width(200.0)
