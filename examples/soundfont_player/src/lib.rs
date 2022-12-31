@@ -250,7 +250,7 @@ impl Plugin for MyPlugin {
                                     );
                                     synth
                                         .program_select(
-                                            0,
+                                            0, // TODO: hard-code channel?
                                             font_id,
                                             current_bank.unwrap(),
                                             current_patch.as_ref().unwrap().1.try_into().unwrap(),
@@ -297,13 +297,13 @@ impl MyPlugin {
                 NoteEvent::NoteOn {
                     timing: _, // TODO: timing offset
                     voice_id: _,
-                    channel,
+                    channel: _,
                     note,
                     velocity,
                 } => {
                     synth
                         .send_event(oxisynth::MidiEvent::NoteOn {
-                            channel,
+                            channel: 0,
                             key: note,
                             vel: denormalize_velocity(velocity) as u8,
                         })
@@ -312,12 +312,15 @@ impl MyPlugin {
                 NoteEvent::NoteOff {
                     timing: _,
                     voice_id: _,
-                    channel,
+                    channel: _,
                     note,
                     velocity: _,
                 } => {
                     synth
-                        .send_event(oxisynth::MidiEvent::NoteOff { channel, key: note })
+                        .send_event(oxisynth::MidiEvent::NoteOff {
+                            channel: 0,
+                            key: note,
+                        })
                         .unwrap();
                 }
                 _ => {
