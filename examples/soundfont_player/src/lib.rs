@@ -57,7 +57,7 @@ impl Default for MyParams {
 
             gain: FloatParam::new(
                 "Gain",
-                util::db_to_gain(-0.5),
+                util::db_to_gain(0.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-30.0),
                     max: util::db_to_gain(30.0),
