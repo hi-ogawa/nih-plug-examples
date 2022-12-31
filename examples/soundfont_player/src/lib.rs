@@ -35,8 +35,7 @@ struct MyParams {
     // TODO: Arc<Mutex<...>> looks too verbose when we know these are only accessed on main thread
     soundfonts: Arc<Mutex<Vec<(String, OsString, oxisynth::SoundFont)>>>,
     soundfont: Arc<Mutex<Option<(String, OsString, oxisynth::SoundFont)>>>,
-    bank: Arc<Mutex<Option<u32>>>,
-    patch: Arc<Mutex<Option<(String, u32)>>>,
+    preset: Arc<Mutex<Option<(u32, u32, String)>>>,
 }
 
 impl Default for MyPlugin {
@@ -71,8 +70,7 @@ impl Default for MyParams {
 
             soundfonts: Arc::new(Mutex::new(vec![])),
             soundfont: Arc::new(Mutex::new(None)),
-            bank: Arc::new(Mutex::new(None)),
-            patch: Arc::new(Mutex::new(None)),
+            preset: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -131,21 +129,7 @@ impl Plugin for MyPlugin {
                             let mut reset_synth = false;
                             let mut soundfonts = params.soundfonts.lock().unwrap();
                             let mut current_soundfont = params.soundfont.lock().unwrap();
-                            let mut current_bank = params.bank.lock().unwrap();
-                            let mut current_patch = params.patch.lock().unwrap();
-                            let mut bank_options: Vec<u32> = vec![];
-                            let mut patch_options: Vec<(String, u32)> = vec![];
-                            if let Some((_, _, soundfont)) = &*current_soundfont {
-                                for preset in &soundfont.presets {
-                                    bank_options.push(preset.banknum());
-                                    if *current_bank == Some(preset.banknum()) {
-                                        patch_options
-                                            .push((preset.name().to_string(), preset.num()));
-                                    }
-                                }
-                            }
-                            bank_options.sort();
-                            bank_options.dedup();
+                            let mut current_preset = params.preset.lock().unwrap();
 
                             ui.label("Soundfont");
                             ui.horizontal(|ui| {
@@ -159,10 +143,9 @@ impl Plugin for MyPlugin {
                                                 .map_or(false, |v| v.0 == el.0);
                                             let mut response =
                                                 ui.selectable_label(selected, el.0.clone());
-                                            if response.clicked() {
+                                            if response.clicked() && !selected {
                                                 *current_soundfont = Some(el.clone());
-                                                *current_bank = None;
-                                                *current_patch = None;
+                                                *current_preset = None;
                                                 reset_synth = true;
                                                 response.mark_changed();
                                             }
@@ -188,50 +171,40 @@ impl Plugin for MyPlugin {
                             });
                             ui.end_row();
 
-                            // TODO: probably table ui is better
-                            ui.label("Bank / Patch");
-                            ui.horizontal(|ui| {
-                                egui::ComboBox::from_id_source("bank")
-                                    .width(50.0)
-                                    .selected_text(
-                                        current_bank.map_or("".to_string(), |v| v.to_string()),
-                                    )
-                                    .show_ui(ui, |ui| {
-                                        for &bank in &bank_options {
-                                            let mut response = ui.selectable_label(
-                                                *current_bank == Some(bank),
-                                                bank.to_string(),
+                            ui.label("Preset");
+                            egui::ComboBox::from_id_source("preset")
+                                .width(300.0)
+                                .selected_text(
+                                    current_preset
+                                        .as_ref()
+                                        .map_or("".to_string(), |v| v.2.clone()),
+                                )
+                                .show_ui(ui, |ui| {
+                                    if let Some((_, _, soundfont)) = current_soundfont.as_ref() {
+                                        for preset in soundfont.presets.iter() {
+                                            let formatted = format!(
+                                                "{} - {}   {}",
+                                                preset.banknum(),
+                                                preset.num(),
+                                                preset.name()
                                             );
-                                            if response.clicked() {
-                                                *current_bank = Some(bank);
-                                                *current_patch = None;
-                                                reset_synth = true;
-                                                response.mark_changed();
-                                            }
-                                        }
-                                    });
-
-                                egui::ComboBox::from_id_source("patch")
-                                    .width(250.0)
-                                    .selected_text(
-                                        current_patch
-                                            .as_ref()
-                                            .map_or("".to_string(), |v| v.0.clone()),
-                                    )
-                                    .show_ui(ui, |ui| {
-                                        for (name, patch) in &patch_options {
-                                            let selected = current_patch
+                                            let selected = current_preset
                                                 .as_ref()
-                                                .map_or(false, |v| &v.1 == patch);
-                                            let mut response = ui.selectable_label(selected, name);
+                                                .map_or(false, |v| v.2 == formatted);
+                                            let mut response =
+                                                ui.selectable_label(selected, &formatted);
                                             if response.clicked() {
-                                                *current_patch = Some((name.clone(), *patch));
+                                                *current_preset = Some((
+                                                    preset.banknum(),
+                                                    preset.num(),
+                                                    formatted,
+                                                ));
                                                 reset_synth = true;
                                                 response.mark_changed();
                                             }
                                         }
-                                    });
-                            });
+                                    }
+                                });
                             ui.end_row();
 
                             if reset_synth {
@@ -240,20 +213,18 @@ impl Plugin for MyPlugin {
                                 synth.font_bank_mut().reset();
 
                                 // select preset or fallback
-                                if current_soundfont.is_some()
-                                    && current_bank.is_some()
-                                    && current_patch.is_some()
-                                {
+                                if current_soundfont.is_some() && current_preset.is_some() {
                                     let font_id = synth.add_font(
                                         current_soundfont.as_ref().unwrap().2.clone(),
                                         true,
                                     );
+                                    let preset = current_preset.as_ref().unwrap();
                                     synth
                                         .program_select(
                                             0, // TODO: hard-code channel?
                                             font_id,
-                                            current_bank.unwrap(),
-                                            current_patch.as_ref().unwrap().1.try_into().unwrap(),
+                                            preset.0,
+                                            preset.1.try_into().unwrap(),
                                         )
                                         .unwrap();
                                 } else {

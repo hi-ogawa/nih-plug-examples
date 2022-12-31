@@ -10,4 +10,4 @@ cargo run -p soundfont_player -- --connect-jack-midi-input midi_keyboard:midi_ou
 
 ![image](https://user-images.githubusercontent.com/4232207/208288590-4c653dde-1bcc-4d25-97a1-ca870dda6a1c.png)
 
-![image](https://user-images.githubusercontent.com/4232207/210125843-849a2e17-5de6-4666-a785-e016ff05f4ea.png)
+![image](https://user-images.githubusercontent.com/4232207/210128687-aea4e4a1-c0fb-4e5f-9bf7-0ba52e3e4972.png)
