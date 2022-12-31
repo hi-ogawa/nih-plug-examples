@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex};
 pub struct MyPlugin {
     params: Arc<MyParams>,
     synth: Arc<Mutex<oxisynth::Synth>>,
+    soundfonts: Arc<Mutex<Vec<oxisynth::SoundFont>>>, // keep independently from `Synth` since it's accessed frequently on gui thread
 }
 
-// HACK: fluidlite::Synth is not Sync, thus Arc<fluidlite::Synth> is not Send, which is required for `impl Plugin for MyPlugin`
-unsafe impl Send for MyPlugin {}
+// embed 1KB of simplest soundfont as default
+const DEFAULT_SOUNDFONT: &[u8] = include_bytes!("../../../thirdparty/OxiSynth/testdata/sin.sf2");
 
 #[derive(Params)]
 struct MyParams {
@@ -21,9 +22,14 @@ struct MyParams {
 
 impl Default for MyPlugin {
     fn default() -> Self {
+        let mut cursor = std::io::Cursor::new(DEFAULT_SOUNDFONT);
+        let soundfont = oxisynth::SoundFont::load(&mut cursor).unwrap();
+        let mut synth = oxisynth::Synth::default();
+        synth.add_font(soundfont.clone(), true);
         Self {
             params: Arc::new(MyParams::default()),
-            synth: Arc::new(Mutex::new(oxisynth::Synth::default())),
+            synth: Arc::new(Mutex::new(synth)),
+            soundfonts: Arc::new(Mutex::new(vec![soundfont])),
         }
     }
 }
@@ -69,41 +75,16 @@ impl Plugin for MyPlugin {
         self.params.clone()
     }
 
-    fn initialize(
-        &mut self,
-        _bus_config: &BusConfig,
-        buffer_config: &BufferConfig,
-        _context: &mut impl InitContext<Self>,
-    ) -> bool {
-        let mut synth = self.synth.lock().unwrap();
-        synth.set_sample_rate(buffer_config.sample_rate);
-
-        // TODO: load soundfont from UI
-        // let mut sfont_file = std::fs::File::open("/usr/share/soundfonts/FluidR3_GM.sf2").unwrap();
-        // let sfont = oxisynth::SoundFont::load(&mut sfont_file).unwrap();
-
-        // embed 1KB of simplest soundfont for quick demo
-        const EMBEDDED_SOUNDFONT: &[u8] =
-            include_bytes!("../../../thirdparty/OxiSynth/testdata/sin.sf2");
-        let mut cursor = std::io::Cursor::new(EMBEDDED_SOUNDFONT);
-        let sfont = oxisynth::SoundFont::load(&mut cursor).unwrap();
-
-        for preset in sfont.presets.iter() {
-            println!("{:?}", (preset.name(), preset.banknum(), preset.num()));
-        }
-        synth.add_font(sfont, true);
-
-        true
-    }
-
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
+        let soundfonts = self.soundfonts.clone();
+        let _synth = self.synth.clone();
         create_egui_editor(
             params.editor_state.clone(),
             (),
             |_, _| {},
             move |egui_ctx, setter, _state| {
-                // TODO: file dialog to choose soundfont
+                // TODO: file dialog to choose soundfont (https://github.com/emilk/egui/blob/34f587d1e1cc69146f7a02f20903e4f573030ffd/examples/file_dialog/src/main.rs)
                 // TODO: settings for reverb, chorus, bank, patch
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
@@ -113,7 +94,20 @@ impl Plugin for MyPlugin {
                             ui.label("Gain");
                             ui.add(widgets::ParamSlider::for_param(&params.gain, setter));
                             ui.end_row();
+
+                            ui.label("Soundfont");
+                            if ui.button("Open file…").clicked() {
+                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                    dbg!(&path);
+                                    let mut file = std::fs::File::open(path).unwrap();
+                                    let soundfont = oxisynth::SoundFont::load(&mut file).unwrap();
+                                    soundfonts.lock().unwrap().push(soundfont);
+                                }
+                            }
+                            ui.end_row();
                         });
+
+                    // TODO: soundfont/bank/preset selector
                 });
             },
         )
@@ -125,6 +119,7 @@ impl Plugin for MyPlugin {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // TODO: locked on main thread e.g. when loading a new font or changing preset.
         let mut synth = self.synth.try_lock().unwrap();
 
         //
