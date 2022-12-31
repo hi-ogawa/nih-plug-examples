@@ -4,6 +4,7 @@ simple examples to get familiar with [`nih-plug`](https://github.com/robbert-vdh
 [`egui`](https://github.com/emilk/egui), and audio programming in general.
 
 ```sh
+git submodule update --init
 cargo run -p midi_keyboard
 cargo run -p soundfont_player -- --connect-jack-midi-input midi_keyboard:midi_output
 ```
