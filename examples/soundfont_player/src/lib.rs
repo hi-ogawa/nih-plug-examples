@@ -108,12 +108,15 @@ impl Plugin for MyPlugin {
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
         let synth = self.synth.clone();
+        let soundfont_promise: Arc<Mutex<Option<poll_promise::Promise<Option<()>>>>> =
+            Default::default();
         create_egui_editor(
             params.editor_state.clone(),
             (),
             |_, _| {},
             move |egui_ctx, setter, _state| {
                 // TODO: more settings? (reverb, chorus)
+                // TODO: refactor egui routines
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
                         .num_columns(2)
@@ -127,7 +130,7 @@ impl Plugin for MyPlugin {
                             // soundfont/bank/patch selector
                             //
                             let mut reset_synth = false;
-                            let mut soundfonts = params.soundfonts.lock().unwrap();
+                            let soundfonts = params.soundfonts.clone();
                             let mut current_soundfont = params.soundfont.lock().unwrap();
                             let mut current_preset = params.preset.lock().unwrap();
 
@@ -137,7 +140,7 @@ impl Plugin for MyPlugin {
                                     .width(200.0)
                                     .selected_text(current_soundfont.as_ref().map_or("", |v| &v.0))
                                     .show_ui(ui, |ui| {
-                                        for el in soundfonts.iter() {
+                                        for el in soundfonts.lock().unwrap().iter() {
                                             let selected = current_soundfont
                                                 .as_ref()
                                                 .map_or(false, |v| v.0 == el.0);
@@ -154,19 +157,68 @@ impl Plugin for MyPlugin {
 
                                 //
                                 // file dialog to choose soundfont https://github.com/emilk/egui/blob/34f587d1e1cc69146f7a02f20903e4f573030ffd/examples/file_dialog/src/main.rs
+                                // and asynchronous parsing of soundfont https://github.com/emilk/egui/blob/34f587d1e1cc69146f7a02f20903e4f573030ffd/examples/download_image/src/main.rs
                                 //
-                                if ui.button("Load File").clicked() {
-                                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                        // TODO: error handling
-                                        // TODO: do asynchronous since it takes a few seconds to read a large file?
-                                        let mut file = std::fs::File::open(path.clone()).unwrap();
-                                        let soundfont =
-                                            oxisynth::SoundFont::load(&mut file).unwrap(); // TODO: does it hang when loading invalid files?
-                                        let file_name =
-                                            path.file_name().unwrap().to_string_lossy().to_string();
-                                        let path_string = path.as_os_str().to_os_string();
-                                        soundfonts.push((file_name, path_string, soundfont));
+                                let mut soundfont_promise = soundfont_promise.lock().unwrap(); // TODO: instead of spawning thread on its own, it's better to use `async_executor` but that would require more verbose logic to keep track of states
+                                let mut is_loading = false;
+                                let mut is_error = false;
+                                if let Some(soundfont_promise_inner) = soundfont_promise.as_ref() {
+                                    match soundfont_promise_inner.ready() {
+                                        None => {
+                                            is_loading = true;
+                                        }
+                                        Some(Some(())) => {
+                                            // reset promise on success
+                                            *soundfont_promise = None;
+                                        }
+                                        Some(None) => {
+                                            is_error = true;
+                                        }
                                     }
+                                }
+
+                                if ui
+                                    .button(if is_loading {
+                                        "Loading…"
+                                    } else {
+                                        "Load File"
+                                    })
+                                    .clicked()
+                                    && !is_loading
+                                {
+                                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                        let promise: poll_promise::Promise<Option<()>> =
+                                            poll_promise::Promise::spawn_thread(
+                                                "load-soundfont-file",
+                                                move || {
+                                                    let mut file =
+                                                        std::fs::File::open(path.clone()).ok()?;
+                                                    let soundfont =
+                                                        oxisynth::SoundFont::load(&mut file)
+                                                            .ok()?;
+                                                    let file_name = path
+                                                        .file_name()
+                                                        .unwrap()
+                                                        .to_string_lossy()
+                                                        .to_string();
+                                                    let path_string =
+                                                        path.as_os_str().to_os_string();
+                                                    soundfonts.lock().unwrap().push((
+                                                        file_name,
+                                                        path_string,
+                                                        soundfont,
+                                                    ));
+                                                    Some(())
+                                                },
+                                            );
+                                        *soundfont_promise = Some(promise);
+                                    }
+                                }
+
+                                if is_error {
+                                    ui.label(
+                                        egui::RichText::new("ERROR").color(egui::Color32::RED),
+                                    );
                                 }
                             });
                             ui.end_row();
