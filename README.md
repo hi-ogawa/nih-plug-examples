@@ -1,6 +1,7 @@
 # nih-plug examples
 
-simple examples to get familiar with [`nih-plug`](https://github.com/robbert-vdh/nih-plug/), [`egui`](https://github.com/emilk/egui), and audio programming in general.
+simple examples to get familiar with [`nih-plug`](https://github.com/robbert-vdh/nih-plug/),
+[`egui`](https://github.com/emilk/egui), and audio programming in general.
 
 ```sh
 cargo run -p midi_keyboard
