@@ -316,6 +316,7 @@ impl MyPlugin {
         //
 
         while let Some(event) = context.next_event() {
+            // TODO: bend and modulation?
             match event {
                 NoteEvent::NoteOn {
                     timing: _, // TODO: timing offset
