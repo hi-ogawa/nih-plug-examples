@@ -1,14 +1,16 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui, widgets, EguiState};
-use std::sync::{Arc, Mutex};
+use std::{
+    ffi::OsString,
+    sync::{Arc, Mutex},
+};
 
 pub struct MyPlugin {
     params: Arc<MyParams>,
     synth: Arc<Mutex<oxisynth::Synth>>,
-    soundfonts: Arc<Mutex<Vec<oxisynth::SoundFont>>>, // keep independently from `Synth` since it's accessed frequently on gui thread
 }
 
-// embed 1KB of simplest soundfont as default
+// embed 1KB of simple soundfont as default fallback
 const DEFAULT_SOUNDFONT: &[u8] = include_bytes!("../../../thirdparty/OxiSynth/testdata/sin.sf2");
 
 #[derive(Params)]
@@ -18,18 +20,27 @@ struct MyParams {
 
     #[id = "gain"]
     gain: FloatParam,
+
+    // keep soundfont related states independently from `Synth` only for the used on gui thread
+    // TODO: persist?
+    // TODO: Arc<Mutex<...>> looks too verbose when we know these are only accessed on main thread
+    soundfonts: Arc<Mutex<Vec<(String, OsString, oxisynth::SoundFont)>>>,
+    soundfont: Arc<Mutex<Option<(String, OsString, oxisynth::SoundFont)>>>,
+    bank: Arc<Mutex<Option<u32>>>,
+    patch: Arc<Mutex<Option<(String, u32)>>>,
 }
 
 impl Default for MyPlugin {
     fn default() -> Self {
         let mut cursor = std::io::Cursor::new(DEFAULT_SOUNDFONT);
         let soundfont = oxisynth::SoundFont::load(&mut cursor).unwrap();
+
         let mut synth = oxisynth::Synth::default();
         synth.add_font(soundfont.clone(), true);
+
         Self {
             params: Arc::new(MyParams::default()),
             synth: Arc::new(Mutex::new(synth)),
-            soundfonts: Arc::new(Mutex::new(vec![soundfont])),
         }
     }
 }
@@ -37,7 +48,7 @@ impl Default for MyPlugin {
 impl Default for MyParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(300, 120),
+            editor_state: EguiState::from_size(450, 300),
 
             gain: FloatParam::new(
                 "Gain",
@@ -52,6 +63,11 @@ impl Default for MyParams {
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            soundfonts: Arc::new(Mutex::new(vec![])),
+            soundfont: Arc::new(Mutex::new(None)),
+            bank: Arc::new(Mutex::new(None)),
+            patch: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -75,17 +91,26 @@ impl Plugin for MyPlugin {
         self.params.clone()
     }
 
+    fn initialize(
+        &mut self,
+        _bus_config: &BusConfig,
+        buffer_config: &BufferConfig,
+        _context: &mut impl InitContext<Self>,
+    ) -> bool {
+        let mut synth = self.synth.lock().unwrap();
+        synth.set_sample_rate(buffer_config.sample_rate);
+        true
+    }
+
     fn editor(&self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let params = self.params.clone();
-        let soundfonts = self.soundfonts.clone();
-        let _synth = self.synth.clone();
+        let synth = self.synth.clone();
         create_egui_editor(
             params.editor_state.clone(),
             (),
             |_, _| {},
             move |egui_ctx, setter, _state| {
-                // TODO: file dialog to choose soundfont (https://github.com/emilk/egui/blob/34f587d1e1cc69146f7a02f20903e4f573030ffd/examples/file_dialog/src/main.rs)
-                // TODO: settings for reverb, chorus, bank, patch
+                // TODO: more settings? (reverb, chorus)
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     egui::Grid::new("params")
                         .num_columns(2)
@@ -95,19 +120,119 @@ impl Plugin for MyPlugin {
                             ui.add(widgets::ParamSlider::for_param(&params.gain, setter));
                             ui.end_row();
 
-                            ui.label("Soundfont");
-                            if ui.button("Open file…").clicked() {
-                                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                    dbg!(&path);
-                                    let mut file = std::fs::File::open(path).unwrap();
-                                    let soundfont = oxisynth::SoundFont::load(&mut file).unwrap();
-                                    soundfonts.lock().unwrap().push(soundfont);
+                            //
+                            // soundfont/bank/patch selector
+                            //
+                            let mut reset_synth = false;
+                            let mut soundfonts = params.soundfonts.lock().unwrap();
+                            let mut current_soundfont = params.soundfont.lock().unwrap();
+                            let mut current_bank = params.bank.lock().unwrap();
+                            let mut current_patch = params.patch.lock().unwrap();
+                            let mut bank_options: Vec<u32> = vec![];
+                            let mut patch_options: Vec<(String, u32)> = vec![];
+                            if let Some((_, _, soundfont)) = &*current_soundfont {
+                                for preset in &soundfont.presets {
+                                    bank_options.push(preset.banknum());
+                                    if *current_bank == Some(preset.banknum()) {
+                                        patch_options
+                                            .push((preset.name().to_string(), preset.num()));
+                                    }
                                 }
                             }
-                            ui.end_row();
-                        });
+                            bank_options.sort();
+                            bank_options.dedup();
 
-                    // TODO: soundfont/bank/preset selector
+                            ui.label("Soundfont");
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_source("soundfont")
+                                    .width(200.0)
+                                    .selected_text(current_soundfont.as_ref().map_or("", |v| &v.0))
+                                    .show_ui(ui, |ui| {
+                                        for el in soundfonts.iter() {
+                                            let selected = current_soundfont
+                                                .as_ref()
+                                                .map_or(false, |v| v.0 == el.0);
+                                            let mut response =
+                                                ui.selectable_label(selected, el.0.clone());
+                                            if response.clicked() {
+                                                *current_soundfont = Some(el.clone());
+                                                *current_bank = None;
+                                                *current_patch = None;
+                                                reset_synth = true;
+                                                response.mark_changed();
+                                            }
+                                        }
+                                    });
+
+                                //
+                                // file dialog to choose soundfont https://github.com/emilk/egui/blob/34f587d1e1cc69146f7a02f20903e4f573030ffd/examples/file_dialog/src/main.rs
+                                //
+                                if ui.button("Load File").clicked() {
+                                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                        // TODO: error handling
+                                        // TODO: do asynchronous since it takes a few seconds to read a large file?
+                                        let mut file = std::fs::File::open(path.clone()).unwrap();
+                                        let soundfont =
+                                            oxisynth::SoundFont::load(&mut file).unwrap(); // TODO: does it hang when loading invalid files?
+                                        let file_name =
+                                            path.file_name().unwrap().to_string_lossy().to_string();
+                                        let path_string = path.as_os_str().to_os_string();
+                                        soundfonts.push((file_name, path_string, soundfont));
+                                    }
+                                }
+                            });
+                            ui.end_row();
+
+                            // TODO: probably table ui is better
+                            ui.label("Bank / Patch");
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_source("bank")
+                                    .width(50.0)
+                                    .selected_text(
+                                        current_bank.map_or("".to_string(), |v| v.to_string()),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        for &bank in &bank_options {
+                                            let mut response = ui.selectable_label(
+                                                *current_bank == Some(bank),
+                                                bank.to_string(),
+                                            );
+                                            if response.clicked() {
+                                                *current_bank = Some(bank);
+                                                *current_patch = None;
+                                                reset_synth = true;
+                                                response.mark_changed();
+                                            }
+                                        }
+                                    });
+
+                                egui::ComboBox::from_id_source("patch")
+                                    .width(250.0)
+                                    .selected_text(
+                                        current_patch
+                                            .as_ref()
+                                            .map_or("".to_string(), |v| v.0.clone()),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        for (name, patch) in &patch_options {
+                                            let selected = current_patch
+                                                .as_ref()
+                                                .map_or(false, |v| &v.1 == patch);
+                                            let mut response = ui.selectable_label(selected, name);
+                                            if response.clicked() {
+                                                *current_patch = Some((name.clone(), *patch));
+                                                reset_synth = true;
+                                                response.mark_changed();
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.end_row();
+
+                            if reset_synth {
+                                let _synth = synth.lock().unwrap();
+                            }
+                        });
                 });
             },
         )
