@@ -11,7 +11,16 @@ pub struct MyPlugin {
 }
 
 // embed 1KB of simple soundfont as default fallback
-const DEFAULT_SOUNDFONT: &[u8] = include_bytes!("../../../thirdparty/OxiSynth/testdata/sin.sf2");
+const DEFAULT_SOUNDFONT_BYTES: &[u8] =
+    include_bytes!("../../../thirdparty/OxiSynth/testdata/sin.sf2");
+
+lazy_static::lazy_static! {
+    static ref DEFAULT_SOUNDFONT: oxisynth::SoundFont = {
+        let mut cursor = std::io::Cursor::new(DEFAULT_SOUNDFONT_BYTES);
+        let soundfont = oxisynth::SoundFont::load(&mut cursor).unwrap();
+        soundfont
+    };
+}
 
 #[derive(Params)]
 struct MyParams {
@@ -32,12 +41,8 @@ struct MyParams {
 
 impl Default for MyPlugin {
     fn default() -> Self {
-        let mut cursor = std::io::Cursor::new(DEFAULT_SOUNDFONT);
-        let soundfont = oxisynth::SoundFont::load(&mut cursor).unwrap();
-
         let mut synth = oxisynth::Synth::default();
-        synth.add_font(soundfont.clone(), true);
-
+        synth.add_font(DEFAULT_SOUNDFONT.clone(), true);
         Self {
             params: Arc::new(MyParams::default()),
             synth: Arc::new(Mutex::new(synth)),
@@ -230,7 +235,30 @@ impl Plugin for MyPlugin {
                             ui.end_row();
 
                             if reset_synth {
-                                let _synth = synth.lock().unwrap();
+                                let mut synth = synth.lock().unwrap();
+                                // remove current font
+                                synth.font_bank_mut().reset();
+
+                                // select preset or fallback
+                                if current_soundfont.is_some()
+                                    && current_bank.is_some()
+                                    && current_patch.is_some()
+                                {
+                                    let font_id = synth.add_font(
+                                        current_soundfont.as_ref().unwrap().2.clone(),
+                                        true,
+                                    );
+                                    synth
+                                        .program_select(
+                                            0,
+                                            font_id,
+                                            current_bank.unwrap(),
+                                            current_patch.as_ref().unwrap().1.try_into().unwrap(),
+                                        )
+                                        .unwrap();
+                                } else {
+                                    synth.add_font(DEFAULT_SOUNDFONT.clone(), true);
+                                }
                             }
                         });
                 });
@@ -241,12 +269,25 @@ impl Plugin for MyPlugin {
     fn process(
         &mut self,
         buffer: &mut Buffer,
-        _aux: &mut AuxiliaryBuffers,
+        aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // TODO: locked on main thread e.g. when loading a new font or changing preset.
-        let mut synth = self.synth.try_lock().unwrap();
+        // allow main thread to lock `Synth` when changing soundfont/preset
+        match self.synth.try_lock().as_mut() {
+            Ok(synth) => self.process_inner(buffer, aux, context, synth),
+            _ => ProcessStatus::KeepAlive,
+        }
+    }
+}
 
+impl MyPlugin {
+    fn process_inner(
+        &self,
+        buffer: &mut Buffer,
+        _aux: &mut AuxiliaryBuffers,
+        context: &mut impl ProcessContext<Self>,
+        synth: &mut oxisynth::Synth,
+    ) -> ProcessStatus {
         //
         // handle note on/off
         //

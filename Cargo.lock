@@ -1863,6 +1863,7 @@ dependencies = [
 name = "soundfont_player"
 version = "0.0.0"
 dependencies = [
+ "lazy_static",
  "nih_plug",
  "nih_plug_egui",
  "oxisynth",

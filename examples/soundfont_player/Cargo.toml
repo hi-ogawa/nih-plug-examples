@@ -11,3 +11,4 @@ nih_plug = { git = "https://github.com/robbert-vdh/nih-plug", features = ["asser
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug" }
 oxisynth = { path = "../../thirdparty/OxiSynth" }
 rfd = "0.10"
+lazy_static = "1.4.0"
