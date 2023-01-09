@@ -122,12 +122,14 @@ impl Plugin for MyPlugin {
                             ui.end_row();
                         });
 
-                    let response = ui.add(egui::Button::new("Play").sense(egui::Sense::drag()));
-                    let note_state_ui = ui.ctx().input().key_down(egui::Key::Space)
-                        || response.clicked()
-                        || response.dragged()
-                        || response.is_pointer_button_down_on();
-                    params.note_state.enqueue(note_state_ui);
+                    let is_on = params.note_state.get() == NOTE_STATE_ON;
+                    let button_clicked = ui.button(if is_on { "Pause" } else { "Play" }).clicked();
+                    let key_pressed = ui
+                        .input_mut()
+                        .consume_key(egui::Modifiers::NONE, egui::Key::Space);
+                    if button_clicked || key_pressed {
+                        params.note_state.enqueue(!is_on);
+                    }
                 });
             },
         )
