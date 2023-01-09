@@ -22,6 +22,9 @@ struct MyParams {
     #[id = "gain"]
     gain: FloatParam,
 
+    #[id = "oscillator"]
+    oscillator_type: EnumParam<OscillatorType>,
+
     #[id = "attack"]
     attack: FloatParam,
 
@@ -47,11 +50,11 @@ impl Default for MyPlugin {
 impl Default for MyParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(300, 150),
+            editor_state: EguiState::from_size(300, 180),
 
             gain: FloatParam::new(
                 "Gain",
-                util::db_to_gain(-5.0),
+                util::db_to_gain(-3.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-20.0),
                     max: util::db_to_gain(10.0),
@@ -62,6 +65,8 @@ impl Default for MyParams {
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            oscillator_type: EnumParam::new("Oscillator", OscillatorType::Sine),
 
             attack: FloatParam::new(
                 "Attack",
@@ -141,6 +146,14 @@ impl Plugin for MyPlugin {
                             ui.add(widgets::ParamSlider::for_param(&params.gain, setter));
                             ui.end_row();
 
+                            // TODO: use egui::ComboBox
+                            ui.label("Oscillator");
+                            ui.add(widgets::ParamSlider::for_param(
+                                &params.oscillator_type,
+                                setter,
+                            ));
+                            ui.end_row();
+
                             ui.label("Attack");
                             ui.add(widgets::ParamSlider::for_param(&params.attack, setter));
                             ui.end_row();
@@ -176,6 +189,7 @@ impl Plugin for MyPlugin {
         // handle note state sent from UI
         match self.params.note_state.dequeue() {
             Some(true) => {
+                self.oscillator.phase = 0.0;
                 self.envelop.stage = EnvelopeStage::Attack(0.0);
             }
             Some(false) => {
@@ -187,6 +201,7 @@ impl Plugin for MyPlugin {
         // sync params
         let note: u8 = self.params.note.value().try_into().unwrap();
         self.oscillator.frequency = nih_plug::util::midi_note_to_freq(note);
+        self.oscillator.oscillator_type = self.params.oscillator_type.value();
         self.envelop.attack_duration = self.params.attack.value();
         self.envelop.release_duration = self.params.release.value();
 
@@ -212,9 +227,16 @@ impl Plugin for MyPlugin {
 // Oscillator
 //
 
+#[derive(nih_plug::params::enums::Enum, PartialEq, Debug, Copy, Clone)]
+enum OscillatorType {
+    // TODO: triangle, sawtooth
+    Sine,
+    Square,
+}
+
 #[derive(Debug)]
 struct Oscillator {
-    // TODO: sine, square, triangle, sawtooth
+    oscillator_type: OscillatorType,
     phase: f32,
     frequency: f32,
 }
@@ -222,15 +244,21 @@ struct Oscillator {
 impl Oscillator {
     fn new() -> Self {
         Self {
+            oscillator_type: OscillatorType::Sine,
             phase: 0.0,
             frequency: 440.0,
         }
     }
 
     fn next(&mut self, delta: f32) -> f32 {
-        let value = (TAU * self.phase).sin();
-        self.phase += self.frequency * delta;
-        self.phase %= 1.0;
+        let mut phase = self.phase;
+        let value = match self.oscillator_type {
+            OscillatorType::Sine => (TAU * phase).sin(),
+            OscillatorType::Square => (phase - 0.5).signum(),
+        };
+        phase += self.frequency * delta;
+        phase %= 1.0;
+        self.phase = phase;
         value
     }
 }
