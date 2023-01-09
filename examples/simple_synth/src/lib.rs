@@ -54,7 +54,7 @@ impl Default for MyParams {
 
             gain: FloatParam::new(
                 "Gain",
-                util::db_to_gain(-3.0),
+                util::db_to_gain(-6.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-20.0),
                     max: util::db_to_gain(10.0),
@@ -146,12 +146,13 @@ impl Plugin for MyPlugin {
                             ui.add(widgets::ParamSlider::for_param(&params.gain, setter));
                             ui.end_row();
 
-                            // TODO: use egui::ComboBox
                             ui.label("Oscillator");
-                            ui.add(widgets::ParamSlider::for_param(
+                            combo_box_for_enum_param(
+                                egui::ComboBox::from_id_source("oscillator"),
+                                ui,
                                 &params.oscillator_type,
                                 setter,
-                            ));
+                            );
                             ui.end_row();
 
                             ui.label("Attack");
@@ -224,6 +225,34 @@ impl Plugin for MyPlugin {
 }
 
 //
+// combo_box_for_enum_param
+//
+
+fn combo_box_for_enum_param<
+    T: nih_plug::params::enums::Enum + std::cmp::PartialEq + Copy + 'static,
+>(
+    combo_box: egui::ComboBox,
+    ui: &mut egui::Ui,
+    param: &EnumParam<T>,
+    setter: &ParamSetter,
+) {
+    let mut selected = param.value();
+    let selected_before = selected;
+    combo_box
+        .selected_text(T::variants()[selected.to_index()])
+        .show_ui(ui, |ui| {
+            for (index, &variant) in T::variants().iter().enumerate() {
+                ui.selectable_value(&mut selected, T::from_index(index), variant);
+            }
+        });
+    if selected != selected_before {
+        setter.begin_set_parameter(param);
+        setter.set_parameter(param, selected);
+        setter.end_set_parameter(param);
+    }
+}
+
+//
 // Oscillator
 //
 
@@ -235,9 +264,9 @@ enum OscillatorType {
     Sawtooth,
 }
 
-// TODO: is this legit?
 // normalize peak based on square integral norm
 // (physically it feels right but human perception might be more complicated?)
+// (Calf's monosynth seems to also have some normalization factor depending on wave pattern)
 impl OscillatorType {
     fn norm(self) -> f32 {
         let square: f32 = match self {
@@ -288,6 +317,8 @@ impl Oscillator {
 //
 // Envelope
 //
+
+// TODO: decay, sustain
 
 #[derive(Debug, Copy, Clone)]
 enum EnvelopeStage {
