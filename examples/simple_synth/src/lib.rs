@@ -22,13 +22,12 @@ struct MyParams {
     #[id = "gain"]
     gain: FloatParam,
 
-    // TODO
+    #[id = "attack"]
+    attack: FloatParam,
 
-    // #[id = "attack"]
-    // attack: FloatParam,
+    #[id = "release"]
+    release: FloatParam,
 
-    // #[id = "release"]
-    // release: FloatParam,
     #[id = "note"]
     note: IntParam,
 
@@ -48,21 +47,46 @@ impl Default for MyPlugin {
 impl Default for MyParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(300, 120),
+            editor_state: EguiState::from_size(300, 150),
 
             gain: FloatParam::new(
                 "Gain",
                 util::db_to_gain(-5.0),
                 FloatRange::Skewed {
-                    min: util::db_to_gain(-30.0),
-                    max: util::db_to_gain(30.0),
-                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+                    min: util::db_to_gain(-20.0),
+                    max: util::db_to_gain(10.0),
+                    factor: FloatRange::gain_skew_factor(-20.0, 10.0),
                 },
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            attack: FloatParam::new(
+                "Attack",
+                0.001,
+                // TODO: skew?
+                FloatRange::Linear {
+                    min: 0.001,
+                    max: 2.0,
+                },
+            )
+            .with_unit(" ms")
+            .with_value_to_string(v2s_f32_scale(1000.0, 0))
+            .with_string_to_value(s2v_f32_scale(1000.0, " ms".to_owned())),
+
+            release: FloatParam::new(
+                "Release",
+                0.1,
+                FloatRange::Linear {
+                    min: 0.001,
+                    max: 2.0,
+                },
+            )
+            .with_unit(" ms")
+            .with_value_to_string(v2s_f32_scale(1000.0, 0))
+            .with_string_to_value(s2v_f32_scale(1000.0, " ms".to_owned())),
 
             note: IntParam::new(
                 "Note",
@@ -117,6 +141,14 @@ impl Plugin for MyPlugin {
                             ui.add(widgets::ParamSlider::for_param(&params.gain, setter));
                             ui.end_row();
 
+                            ui.label("Attack");
+                            ui.add(widgets::ParamSlider::for_param(&params.attack, setter));
+                            ui.end_row();
+
+                            ui.label("Release");
+                            ui.add(widgets::ParamSlider::for_param(&params.release, setter));
+                            ui.end_row();
+
                             ui.label("Note");
                             ui.add(widgets::ParamSlider::for_param(&params.note, setter));
                             ui.end_row();
@@ -144,17 +176,19 @@ impl Plugin for MyPlugin {
         // handle note state sent from UI
         match self.params.note_state.dequeue() {
             Some(true) => {
-                self.envelop.attack();
+                self.envelop.stage = EnvelopeStage::Attack(0.0);
             }
             Some(false) => {
-                self.envelop.release();
+                self.envelop.stage = EnvelopeStage::Release(0.0);
             }
             _ => {}
         }
 
-        // update frequency
+        // sync params
         let note: u8 = self.params.note.value().try_into().unwrap();
         self.oscillator.frequency = nih_plug::util::midi_note_to_freq(note);
+        self.envelop.attack_duration = self.params.attack.value();
+        self.envelop.release_duration = self.params.release.value();
 
         // synthesize
         let sample_rate = context.transport().sample_rate;
@@ -224,18 +258,9 @@ impl Envelope {
     fn new() -> Self {
         Self {
             stage: EnvelopeStage::Off,
-            // TODO: for now hard-coded
             attack_duration: 0.01,
             release_duration: 0.1,
         }
-    }
-
-    fn attack(&mut self) {
-        self.stage = EnvelopeStage::Attack(0.0);
-    }
-
-    fn release(&mut self) {
-        self.stage = EnvelopeStage::Release(0.0);
     }
 
     fn next(&mut self, delta: f32) -> f32 {
@@ -312,4 +337,19 @@ impl NoteState {
             _ => None,
         }
     }
+}
+
+//
+// millisecond formatter
+//
+
+fn v2s_f32_scale(scale: f32, digits: usize) -> Arc<dyn Fn(f32) -> String + Send + Sync> {
+    Arc::new(move |value| format!("{:.digits$}", value * scale))
+}
+
+fn s2v_f32_scale(scale: f32, trim_end: String) -> Arc<dyn Fn(&str) -> Option<f32> + Send + Sync> {
+    Arc::new(move |string| {
+        let string = string.trim_end_matches(&trim_end);
+        string.parse::<f32>().ok().map(|value| value / scale)
+    })
 }
