@@ -5,4 +5,5 @@ members = [
   "examples/midi_keyboard",
   "examples/metronome",
   "examples/soundfont_player",
+  "examples/simple_synth",
 ]
