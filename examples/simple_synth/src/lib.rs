@@ -234,6 +234,20 @@ enum OscillatorType {
     Square,
 }
 
+// normalize peak based on square integral (physically it feels make sense?)
+impl OscillatorType {
+    fn square_integral(self) -> f32 {
+        match self {
+            OscillatorType::Sine => 0.5,
+            OscillatorType::Square => 1.0,
+        }
+    }
+
+    fn factor(self) -> f32 {
+        OscillatorType::Sine.square_integral() / self.square_integral()
+    }
+}
+
 #[derive(Debug)]
 struct Oscillator {
     oscillator_type: OscillatorType,
@@ -255,7 +269,7 @@ impl Oscillator {
         let value = match self.oscillator_type {
             OscillatorType::Sine => (TAU * phase).sin(),
             OscillatorType::Square => (phase - 0.5).signum(),
-        };
+        } * self.oscillator_type.factor();
         phase += self.frequency * delta;
         phase %= 1.0;
         self.phase = phase;
