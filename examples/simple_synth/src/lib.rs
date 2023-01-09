@@ -229,22 +229,28 @@ impl Plugin for MyPlugin {
 
 #[derive(nih_plug::params::enums::Enum, PartialEq, Debug, Copy, Clone)]
 enum OscillatorType {
-    // TODO: triangle, sawtooth
     Sine,
     Square,
+    Triangle,
+    Sawtooth,
 }
 
-// normalize peak based on square integral (physically it feels make sense?)
+// TODO: is this legit?
+// normalize peak based on square integral norm
+// (physically it feels right but human perception might be more complicated?)
 impl OscillatorType {
-    fn square_integral(self) -> f32 {
-        match self {
+    fn norm(self) -> f32 {
+        let square: f32 = match self {
             OscillatorType::Sine => 0.5,
             OscillatorType::Square => 1.0,
-        }
+            OscillatorType::Triangle => 1.0 / 3.0,
+            OscillatorType::Sawtooth => 1.0 / 3.0,
+        };
+        square.sqrt()
     }
 
     fn factor(self) -> f32 {
-        OscillatorType::Sine.square_integral() / self.square_integral()
+        OscillatorType::Sine.norm() / self.norm()
     }
 }
 
@@ -265,14 +271,16 @@ impl Oscillator {
     }
 
     fn next(&mut self, delta: f32) -> f32 {
-        let mut phase = self.phase;
+        let mut t = self.phase;
         let value = match self.oscillator_type {
-            OscillatorType::Sine => (TAU * phase).sin(),
-            OscillatorType::Square => (phase - 0.5).signum(),
+            OscillatorType::Sine => (TAU * t).sin(),
+            OscillatorType::Square => (t - 0.5).signum(),
+            OscillatorType::Triangle => (-4.0 * t + 2.0).abs() - 1.0,
+            OscillatorType::Sawtooth => 2.0 * t - 1.0,
         } * self.oscillator_type.factor();
-        phase += self.frequency * delta;
-        phase %= 1.0;
-        self.phase = phase;
+        t += self.frequency * delta;
+        t %= 1.0;
+        self.phase = t;
         value
     }
 }
